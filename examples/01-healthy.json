@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "healthy-service",
+  "name": "Healthy service",
+  "description": "Check a local endpoint that always responds with HTTP 200.",
+  "steps": [
+    {
+      "id": "check-health",
+      "name": "Check service health",
+      "type": "http.check",
+      "config": { "url": "${DEMO_URL}/healthy", "expectedStatus": 200, "timeoutMs": 3000 }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+services:
+  app:
+    build: .
+    image: patchbay:m0
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./examples:/app/examples:ro
+    read_only: true
+    cap_drop: [ALL]
+    depends_on:
+      demo:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, "-", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  demo:
+    build: .
+    image: patchbay:m0
+    command: [/app/patchbay-demo, -addr, "0.0.0.0:9091"]
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, -q, -O, "-", "http://127.0.0.1:9091/healthy"]
+      interval: 3s
+      timeout: 2s
+      retries: 5

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "unhealthy-service",
+  "name": "Unhealthy service",
+  "description": "See how a completed check reports a service returning HTTP 503.",
+  "steps": [
+    {
+      "id": "check-health",
+      "name": "Check service health",
+      "type": "http.check",
+      "config": { "url": "${DEMO_URL}/unhealthy", "expectedStatus": 200, "timeoutMs": 3000 }
+    }
+  ]
+}

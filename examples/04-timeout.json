@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "slow-service",
+  "name": "Service timeout",
+  "description": "Give a deliberately slow endpoint 500 ms to respond.",
+  "steps": [
+    {
+      "id": "check-slow-service",
+      "name": "Check response deadline",
+      "type": "http.check",
+      "config": { "url": "${DEMO_URL}/slow", "expectedStatus": 200, "timeoutMs": 500 }
+    }
+  ]
+}
