@@ -34,6 +34,8 @@ demo:
 
 up:
 	docker compose up --build --wait
+	docker ps
 
 down:
 	docker compose down
+	docker ps

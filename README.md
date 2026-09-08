@@ -63,6 +63,33 @@ make build
 The Makefile keeps Go and npm caches in `.cache/`. This is local tooling state,
 excluded from Git and the Docker build.
 
+## Explore workflow canvases
+
+Each workflow page has a [React Flow](https://reactflow.dev/learn) canvas seeded
+from that workflow's existing step names. Layouts and added or removed placeholder
+nodes belong to that workflow only. They remain in memory while you switch
+workflows or visit the New workflow page; normal API polling does not reset them.
+
+Use **New workflow** in the top navigation, or open
+`http://localhost:8080/#/canvas` (`http://127.0.0.1:5173/#/canvas` in development).
+Start with a blank canvas, enter a name, and add HTTP, SSH, or Discord placeholder
+nodes. **Create draft** adds the workflow to the sidebar and opens its own page.
+It creates frontend state only: local drafts have no Run button and never send
+a workflow-creation request to the backend.
+
+Drag nodes, pan and zoom, use **Reset layout**, or select a node and press Delete
+to remove it. Node connections remain disabled. Reloading clears all canvas
+edits, unfinished new workflows, and locally created drafts.
+
+Canvas editing does not modify or execute the saved workflows. For existing
+workflows, **Run workflow** still uses the saved steps shown below the canvas.
+The existing backend requests and execution behavior are unchanged.
+
+`web/src/WorkflowCanvas.tsx` is the shared canvas component.
+`web/src/canvasDraft.ts` defines draft data and maps saved steps into nodes.
+`web/src/App.tsx` owns draft state by workflow ID across page navigation.
+`web/src/CanvasPage.tsx` provides the New workflow form.
+
 ## Try the four examples
 
 | Example | Expected result |

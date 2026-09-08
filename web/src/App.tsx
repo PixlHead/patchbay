@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
+import AppHeader from './AppHeader';
+import CanvasPage from './CanvasPage';
+import WorkflowCanvas from './WorkflowCanvas';
+import { draftFromWorkflow } from './canvasDraft';
+import type { CanvasDraft, CanvasDrafts, LocalWorkflow } from './canvasDraft';
 import { request } from './api';
 import type { Run, StepRun, Workflow } from './api';
 
@@ -12,9 +18,70 @@ const statusLabel: Record<string, string> = {
 };
 
 export default function App() {
+  // Hash navigation works with the existing Go file server without backend routes.
+  const [page, setPage] = useState(() => window.location.hash);
+  const [workflowId, setWorkflowId] = useState('');
+  const [localWorkflows, setLocalWorkflows] = useState<LocalWorkflow[]>([]);
+  const [canvasDrafts, setCanvasDrafts] = useState<CanvasDrafts>({});
+  const [newWorkflow, setNewWorkflow] = useState<CanvasDraft>({ name: '', nodes: [] });
+
+  useEffect(() => {
+    const navigate = () => setPage(window.location.hash);
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
+
+  function createDraft() {
+    const name = newWorkflow.name.trim();
+    if (!name) return;
+    const id = `local-${crypto.randomUUID()}`;
+    setLocalWorkflows((current) => [
+      ...current,
+      {
+        local: true,
+        id,
+        name,
+        description: 'A local workflow draft. Its nodes do not run actions yet.',
+      },
+    ]);
+    setCanvasDrafts((current) => ({ ...current, [id]: { ...newWorkflow, name } }));
+    setWorkflowId(id);
+    setNewWorkflow({ name: '', nodes: [] });
+    window.location.hash = '#/workflows';
+  }
+
+  // Canvas state lives above both pages, so navigation and API polling cannot reset it.
+  // Unmounting the runner stops polling while the New workflow page is open.
+  return page === '#/canvas' ? (
+    <CanvasPage draft={newWorkflow} onChange={setNewWorkflow} onCreate={createDraft} />
+  ) : (
+    <WorkflowPage
+      localWorkflows={localWorkflows}
+      canvasDrafts={canvasDrafts}
+      setCanvasDrafts={setCanvasDrafts}
+      workflowId={workflowId}
+      onSelectWorkflow={setWorkflowId}
+    />
+  );
+}
+
+type WorkflowPageProps = {
+  localWorkflows: LocalWorkflow[];
+  canvasDrafts: CanvasDrafts;
+  setCanvasDrafts: Dispatch<SetStateAction<CanvasDrafts>>;
+  workflowId: string;
+  onSelectWorkflow: (id: string) => void;
+};
+
+function WorkflowPage({
+  localWorkflows,
+  canvasDrafts,
+  setCanvasDrafts,
+  workflowId,
+  onSelectWorkflow,
+}: WorkflowPageProps) {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
-  const [workflowId, setWorkflowId] = useState('');
   const [runId, setRunId] = useState('');
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -51,17 +118,19 @@ export default function App() {
     };
   }, []);
 
-  const selected = workflows.find((w) => w.id === workflowId) ?? workflows[0];
+  const availableWorkflows: (Workflow | LocalWorkflow)[] = [...workflows, ...localWorkflows];
+  const selected = availableWorkflows.find((w) => w.id === workflowId) ?? availableWorkflows[0];
+  const savedWorkflow = selected && 'steps' in selected ? selected : undefined;
   const history = runs.filter((run) => run.workflowId === selected?.id);
   const inspectedRun = history.find((run) => run.id === runId) ?? history[0];
   const busy = runs.some((run) => run.status === 'running');
 
   async function startRun() {
-    if (!selected) return;
+    if (!savedWorkflow) return;
     setStarting(true);
     setActionError('');
     try {
-      const run = await request<Run>(`/workflows/${encodeURIComponent(selected.id)}/runs`, {
+      const run = await request<Run>(`/workflows/${encodeURIComponent(savedWorkflow.id)}/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -76,36 +145,22 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            h<span>f</span>
-          </span>
-          Patchbay
-        </div>
-        <div className="topbar-meta">
-          <span className="milestone">M0</span>
-          <span className={`connection ${connectionError ? 'disconnected' : ''}`}>
-            <i />
-            {connectionError ? 'Disconnected' : loading ? 'Connecting' : 'Local workspace'}
-          </span>
-        </div>
-      </header>
+      <AppHeader page="workflows" loading={loading} disconnected={!!connectionError} />
 
       <div className="workspace">
         <aside className="sidebar" aria-label="Workflow navigation">
           <div className="section-label">
-            WORKFLOWS <span>{workflows.length}</span>
+            WORKFLOWS <span>{availableWorkflows.length}</span>
           </div>
           <p className="sidebar-description">Small tasks. A clear execution trail.</p>
           <nav aria-label="Workflows">
-            {workflows.map((workflow, index) => (
+            {availableWorkflows.map((workflow, index) => (
               <button
                 key={workflow.id}
                 className={`workflow-link ${selected?.id === workflow.id ? 'selected' : ''}`}
                 aria-current={selected?.id === workflow.id ? 'page' : undefined}
                 onClick={() => {
-                  setWorkflowId(workflow.id);
+                  onSelectWorkflow(workflow.id);
                   setRunId('');
                   setActionError('');
                 }}
@@ -114,8 +169,9 @@ export default function App() {
                 <span>
                   <strong>{workflow.name}</strong>
                   <small>
-                    {workflow.steps.length} {workflow.steps.length === 1 ? 'step' : 'steps'} ·
-                    Manual trigger
+                    {'steps' in workflow
+                      ? `${workflow.steps.length} ${workflow.steps.length === 1 ? 'step' : 'steps'} · Manual trigger`
+                      : `${canvasDrafts[workflow.id]?.nodes.length ?? 0} nodes · Local draft`}
                   </small>
                 </span>
               </button>
@@ -161,98 +217,116 @@ export default function App() {
               </div>
               <div className="page-heading">
                 <div>
-                  <div className="eyebrow">MANUAL WORKFLOW</div>
+                  <div className="eyebrow">{savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}</div>
                   <h1>{selected.name}</h1>
                   <p>{selected.description}</p>
                 </div>
-                <button
-                  className="run-button"
-                  disabled={starting || busy || !!connectionError}
-                  onClick={() => void startRun()}
-                >
-                  <span aria-hidden="true">▶</span>
-                  {starting ? 'Starting…' : busy ? 'Workflow running…' : 'Run workflow'}
-                </button>
+                {savedWorkflow && (
+                  <button
+                    className="run-button"
+                    disabled={starting || busy || !!connectionError}
+                    onClick={() => void startRun()}
+                  >
+                    <span aria-hidden="true">▶</span>
+                    {starting ? 'Starting…' : busy ? 'Workflow running…' : 'Run workflow'}
+                  </button>
+                )}
               </div>
 
-              <section className="panel workflow-panel" aria-labelledby="steps-title">
-                <div className="panel-heading">
-                  <h2 id="steps-title">Workflow steps</h2>
-                  <span className="subtle">Execute in order</span>
-                </div>
-                <ol className="step-list">
-                  {selected.steps.map((step, index) => (
-                    <li key={step.id}>
-                      <span className="step-index">{index + 1}</span>
-                      <div className="step-definition">
-                        <div className="step-title">
-                          <h3>{step.name}</h3>
-                          <span className="type-label">HTTP CHECK</span>
-                        </div>
-                        <code className="endpoint">GET {step.config.url}</code>
-                        <div className="step-settings">
-                          <span>
-                            Expected <b>HTTP {step.config.expectedStatus}</b>
-                          </span>
-                          <span>
-                            Timeout <b>{step.config.timeoutMs.toLocaleString()} ms</b>
-                          </span>
-                        </div>
+              <WorkflowCanvas
+                key={selected.id}
+                draft={canvasDrafts[selected.id] ?? draftFromWorkflow(selected)}
+                onChange={(update) =>
+                  setCanvasDrafts((current) => ({
+                    ...current,
+                    [selected.id]: update(current[selected.id] ?? draftFromWorkflow(selected)),
+                  }))
+                }
+                hasSavedWorkflow={!!savedWorkflow}
+              />
+
+              {savedWorkflow && (
+                <>
+                  <section className="panel workflow-panel" aria-labelledby="steps-title">
+                    <div className="panel-heading">
+                      <h2 id="steps-title">Saved workflow steps</h2>
+                      <span className="subtle">Execute in order</span>
+                    </div>
+                    <ol className="step-list">
+                      {savedWorkflow.steps.map((step, index) => (
+                        <li key={step.id}>
+                          <span className="step-index">{index + 1}</span>
+                          <div className="step-definition">
+                            <div className="step-title">
+                              <h3>{step.name}</h3>
+                              <span className="type-label">HTTP CHECK</span>
+                            </div>
+                            <code className="endpoint">GET {step.config.url}</code>
+                            <div className="step-settings">
+                              <span>
+                                Expected <b>HTTP {step.config.expectedStatus}</b>
+                              </span>
+                              <span>
+                                Timeout <b>{step.config.timeoutMs.toLocaleString()} ms</b>
+                              </span>
+                            </div>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                    <details className="definition">
+                      <summary>View workflow JSON</summary>
+                      <pre>{JSON.stringify(savedWorkflow, null, 2)}</pre>
+                    </details>
+                  </section>
+
+                  <div className="results-heading">
+                    <h2>Execution history</h2>
+                    <span className="subtle">
+                      {history.length} {history.length === 1 ? 'run' : 'runs'} this session
+                    </span>
+                  </div>
+                  {history.length === 0 ? (
+                    <div className="panel empty-state">
+                      <div className="empty-symbol" aria-hidden="true">
+                        ↳
                       </div>
-                    </li>
-                  ))}
-                </ol>
-                <details className="definition">
-                  <summary>View workflow JSON</summary>
-                  <pre>{JSON.stringify(selected, null, 2)}</pre>
-                </details>
-              </section>
-
-              <div className="results-heading">
-                <h2>Execution history</h2>
-                <span className="subtle">
-                  {history.length} {history.length === 1 ? 'run' : 'runs'} this session
-                </span>
-              </div>
-              {history.length === 0 ? (
-                <div className="panel empty-state">
-                  <div className="empty-symbol" aria-hidden="true">
-                    ↳
-                  </div>
-                  <h3>Ready for its first run</h3>
-                  <p>
-                    Run this workflow to see each check’s status,
-                    <br className="desktop-break" /> response time, and result.
-                  </p>
-                </div>
-              ) : (
-                <div className="execution-layout">
-                  <div className="panel history-list" aria-label="Past runs">
-                    {history.map((run) => (
-                      <button
-                        key={run.id}
-                        className={`history-item ${inspectedRun?.id === run.id ? 'active' : ''}`}
-                        aria-pressed={inspectedRun?.id === run.id}
-                        onClick={() => setRunId(run.id)}
-                      >
-                        <div>
-                          <Status status={run.status} />
-                          <time dateTime={run.startedAt}>
-                            {new Date(run.startedAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}
-                          </time>
-                        </div>
-                        <small>
-                          Run {run.id.slice(0, 8)} <span>→</span>
-                        </small>
-                      </button>
-                    ))}
-                  </div>
-                  {inspectedRun && <RunDetails run={inspectedRun} />}
-                </div>
+                      <h3>Ready for its first run</h3>
+                      <p>
+                        Run this workflow to see each check’s status,
+                        <br className="desktop-break" /> response time, and result.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="execution-layout">
+                      <div className="panel history-list" aria-label="Past runs">
+                        {history.map((run) => (
+                          <button
+                            key={run.id}
+                            className={`history-item ${inspectedRun?.id === run.id ? 'active' : ''}`}
+                            aria-pressed={inspectedRun?.id === run.id}
+                            onClick={() => setRunId(run.id)}
+                          >
+                            <div>
+                              <Status status={run.status} />
+                              <time dateTime={run.startedAt}>
+                                {new Date(run.startedAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                })}
+                              </time>
+                            </div>
+                            <small>
+                              Run {run.id.slice(0, 8)} <span>→</span>
+                            </small>
+                          </button>
+                        ))}
+                      </div>
+                      {inspectedRun && <RunDetails run={inspectedRun} />}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
