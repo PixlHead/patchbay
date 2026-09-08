@@ -33,7 +33,7 @@ demo:
 	go run ./cmd/demo
 
 up:
-	docker compose up --build -d --wait
+	docker compose up --build --wait
 
 down:
 	docker compose down

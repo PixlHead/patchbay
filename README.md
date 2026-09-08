@@ -13,7 +13,7 @@ at startup.
 From this project directory, with Docker's engine running:
 
 ```sh
-docker compose up --build -d --wait
+docker compose up --build --wait
 ```
 
 Open **http://localhost:8080**. Compose builds the app and a small demo service.
