@@ -256,7 +256,12 @@ The `runs` table holds run metadata and a JSON copy of the workflow definition;
 tables and SQLite's `user_version` number are created in one transaction.
 Reopening the current version preserves existing data; unsupported versions are
 rejected. The migration tests cover reopening, conflicts, and version rejection.
-Writing run records is the next separate change.
+
+`store.CreateRun(ctx, db, run, definition)` inserts a run, its workflow snapshot,
+and its ordered step results in one transaction. Duplicate run IDs are rejected;
+a failed step insert rolls back the entire save. Missing timestamps and outputs
+are stored as SQL NULL. Since runs currently start immediately, creation and
+start use the same timestamp. Updating saved runs is the next separate change.
 
 ## M0 completion and next steps
 
