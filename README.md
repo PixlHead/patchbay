@@ -261,7 +261,13 @@ rejected. The migration tests cover reopening, conflicts, and version rejection.
 and its ordered step results in one transaction. Duplicate run IDs are rejected;
 a failed step insert rolls back the entire save. Missing timestamps and outputs
 are stored as SQL NULL. Since runs currently start immediately, creation and
-start use the same timestamp. Updating saved runs is the next separate change.
+start use the same timestamp.
+
+`store.UpdateRun(ctx, db, run)` saves execution statuses, timestamps, outputs,
+and errors together. It preserves the workflow snapshot, creation time, names,
+and step order. The caller supplies all original steps and serializes updates
+for each run. Missing runs or mismatched steps reject the entire update. Reading
+saved history is the next separate change; server wiring still comes afterward.
 
 ## M0 completion and next steps
 

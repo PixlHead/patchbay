@@ -64,6 +64,69 @@ func CreateRun(ctx context.Context, db *sql.DB, run engine.Run, definition workf
 	return nil
 }
 
+// UpdateRun saves execution state for an existing run and its steps atomically.
+// Workflow details, creation time, step names, and step order remain unchanged.
+// The caller supplies every step in its original order and serializes updates
+// for each run; this function does not enforce execution status transitions.
+func UpdateRun(ctx context.Context, db *sql.DB, run engine.Run) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin run update: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `UPDATE runs
+        SET status = ?, started_at = ?, finished_at = ? WHERE id = ?`,
+		run.Status, run.StartedAt.UnixMilli(), unixMilliOrNull(run.FinishedAt), run.ID)
+	if err != nil {
+		return fmt.Errorf("update run %q: %w", run.ID, err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return fmt.Errorf("check run %q update: %w", run.ID, err)
+	} else if affected != 1 {
+		return fmt.Errorf("update run %q: %w", run.ID, sql.ErrNoRows)
+	}
+
+	// A full snapshot must describe exactly the steps saved when the run began.
+	var stepCount int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM run_steps WHERE run_id = ?", run.ID).Scan(&stepCount); err != nil {
+		return fmt.Errorf("count run %q steps: %w", run.ID, err)
+	}
+	if stepCount != len(run.Steps) {
+		return fmt.Errorf("update run %q: expected %d steps, got %d", run.ID, stepCount, len(run.Steps))
+	}
+
+	for position, step := range run.Steps {
+		var outputJSON any
+		if step.Output != nil {
+			encoded, err := json.Marshal(step.Output)
+			if err != nil {
+				return fmt.Errorf("encode step %q output: %w", step.ID, err)
+			}
+			outputJSON = string(encoded)
+		}
+		// Matching the original position also rejects reordered or duplicate IDs.
+		result, err := tx.ExecContext(ctx, `UPDATE run_steps
+            SET status = ?, started_at = ?, finished_at = ?, output_json = ?, error = ?
+            WHERE run_id = ? AND step_id = ? AND position = ?`,
+			step.Status, unixMilliOrNull(step.StartedAt), unixMilliOrNull(step.FinishedAt), outputJSON, step.Error,
+			run.ID, step.ID, position)
+		if err != nil {
+			return fmt.Errorf("update run %q step %q: %w", run.ID, step.ID, err)
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return fmt.Errorf("check run %q step %q update: %w", run.ID, step.ID, err)
+		} else if affected != 1 {
+			return fmt.Errorf("update run %q step %q at position %d: %w", run.ID, step.ID, position, sql.ErrNoRows)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit run %q update: %w", run.ID, err)
+	}
+	return nil
+}
+
 func unixMilliOrNull(value *time.Time) any {
 	if value == nil {
 		return nil

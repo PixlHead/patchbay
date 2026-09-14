@@ -24,17 +24,28 @@ func TestCreateRunStoresSnapshotAndStepResults(t *testing.T) {
 	if err := CreateRun(ctx, db, run, definition); err != nil {
 		t.Fatal(err)
 	}
+	assertStoredRun(t, db, definition, run)
+}
 
+// Read the real rows so create and update tests check the same stored values.
+func assertStoredRun(t *testing.T, db *sql.DB, definition workflow.Definition, run engine.Run) {
+	t.Helper()
+	ctx := context.Background()
 	var workflowID, name, status, snapshot string
-	var created, started, finished int64
+	var created, started int64
+	var finished sql.NullInt64
 	if err := db.QueryRowContext(ctx, `SELECT workflow_id, workflow_name, status,
         definition_json, created_at, started_at, finished_at FROM runs WHERE id = ?`, run.ID).
 		Scan(&workflowID, &name, &status, &snapshot, &created, &started, &finished); err != nil {
 		t.Fatal(err)
 	}
 	if workflowID != run.WorkflowID || name != run.WorkflowName || status != run.Status ||
-		created != run.StartedAt.UnixMilli() || started != created || finished != run.FinishedAt.UnixMilli() {
-		t.Fatalf("unexpected run metadata: %s %s %s %d %d %d", workflowID, name, status, created, started, finished)
+		created != run.StartedAt.UnixMilli() || started != created {
+		t.Fatalf("unexpected run metadata: %s %s %s %d %d", workflowID, name, status, created, started)
+	}
+	if finished.Valid != (run.FinishedAt != nil) ||
+		(finished.Valid && finished.Int64 != run.FinishedAt.UnixMilli()) {
+		t.Fatalf("unexpected run finish time: %v", finished)
 	}
 	var savedDefinition workflow.Definition
 	if err := json.Unmarshal([]byte(snapshot), &savedDefinition); err != nil {
