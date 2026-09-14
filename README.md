@@ -272,8 +272,13 @@ for each run. Missing runs or mismatched steps reject the entire update.
 a single read transaction, keeping them consistent during concurrent updates.
 It restores UTC timestamps and decoded outputs. A missing run returns an error
 wrapping `sql.ErrNoRows`; malformed output JSON returns an error instead of
-partial history. Listing recent runs is the next separate change; server wiring
-still comes afterward.
+partial history.
+
+`store.ListRuns(ctx, db, limit)` accepts limits from 1 to 100 and returns complete
+runs ordered by creation time newest first, then by run ID descending for ties.
+The list and its step results share one read transaction. An empty history
+returns an empty list; invalid limits or read errors return an error without
+partial results. Connecting storage to the runner and history API comes next.
 
 ## M0 completion and next steps
 

@@ -20,10 +20,60 @@ func GetRun(ctx context.Context, db *sql.DB, id string) (engine.Run, error) {
 	}
 	// There are no writes to commit; Rollback ends the read transaction.
 	defer tx.Rollback()
+	return readRunInTx(ctx, tx, id)
+}
 
+// ListRuns returns complete runs, newest first by creation time, then ID descending.
+// The limit must be between 1 and 100. An empty history returns an empty slice;
+// any failure returns nil rather than a partial list.
+func ListRuns(ctx context.Context, db *sql.DB, limit int) ([]engine.Run, error) {
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("run history limit must be between 1 and 100 (got %d)", limit)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin run list read: %w", err)
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM runs
+        ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list run IDs: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]string, 0, limit)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("read listed run ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list run IDs: %w", err)
+	}
+	// Finish this result set before reading runs on the same connection.
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close run ID list: %w", err)
+	}
+
+	runs := make([]engine.Run, 0, len(ids))
+	for _, id := range ids {
+		run, err := readRunInTx(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, nil
+}
+
+// readRunInTx reads a run using the caller's existing database transaction.
+func readRunInTx(ctx context.Context, tx *sql.Tx, id string) (engine.Run, error) {
 	var run engine.Run
 	var started, finished sql.NullInt64
-	err = tx.QueryRowContext(ctx, `SELECT id, workflow_id, workflow_name, status,
+	err := tx.QueryRowContext(ctx, `SELECT id, workflow_id, workflow_name, status,
         started_at, finished_at FROM runs WHERE id = ?`, id).
 		Scan(&run.ID, &run.WorkflowID, &run.WorkflowName, &run.Status, &started, &finished)
 	if err != nil {
