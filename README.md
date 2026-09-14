@@ -266,8 +266,14 @@ start use the same timestamp.
 `store.UpdateRun(ctx, db, run)` saves execution statuses, timestamps, outputs,
 and errors together. It preserves the workflow snapshot, creation time, names,
 and step order. The caller supplies all original steps and serializes updates
-for each run. Missing runs or mismatched steps reject the entire update. Reading
-saved history is the next separate change; server wiring still comes afterward.
+for each run. Missing runs or mismatched steps reject the entire update.
+
+`store.GetRun(ctx, db, id)` reads one saved run and its ordered step results in
+a single read transaction, keeping them consistent during concurrent updates.
+It restores UTC timestamps and decoded outputs. A missing run returns an error
+wrapping `sql.ErrNoRows`; malformed output JSON returns an error instead of
+partial history. Listing recent runs is the next separate change; server wiring
+still comes afterward.
 
 ## M0 completion and next steps
 
