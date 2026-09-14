@@ -7,7 +7,7 @@ RUN npm run build
 
 FROM golang:1.26.4-alpine AS backend
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum ./
 COPY cmd/server/ ./cmd/server/
 COPY internal/ ./internal/
 RUN CGO_ENABLED=0 go build -trimpath -o /out/patchbay ./cmd/server

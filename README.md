@@ -237,6 +237,21 @@ Timeouts, HTTP 503, and unreachable targets remain covered by Go's temporary
 HTTP test servers. Screenshots go to `web/test-results/`. Linux installations may
 also need Playwright's documented browser system dependencies.
 
+## M1 storage foundation
+
+`internal/store/sqlite.go` introduces `store.Open(ctx, path)` for a SQLite file.
+Its parent directory must exist, and the caller closes the returned database.
+The helper keeps one reusable connection, enables foreign-key checks on every
+connection, and waits up to five seconds when SQLite encounters a database lock.
+It verifies the connection before returning so path errors are reported early.
+The [modernc.org/sqlite driver](https://pkg.go.dev/modernc.org/sqlite) supports the
+existing build with CGO disabled.
+
+This first storage change is not wired into the server yet. Run history still
+lives in memory. After review, its focused tests can be run with
+`go test -race ./internal/store`; they create databases in temporary directories.
+Versioned schema creation is the next separate change.
+
 ## M0 completion and next steps
 
 M0 includes the full browser → API → sequential runner → HTTP check → result path,
