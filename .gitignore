@@ -1,5 +1,6 @@
 .DS_Store
 .cache/
+/data/
 bin/
 web/node_modules/
 web/dist/

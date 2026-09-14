@@ -4,16 +4,19 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"patchbay/internal/engine"
 	"patchbay/internal/httpapi"
 	"patchbay/internal/nodes"
+	"patchbay/internal/store"
 	"patchbay/internal/workflow"
 )
 
@@ -21,39 +24,62 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
 	directory := flag.String("workflows", "workflows", "directory containing workflow JSON files")
 	webDir := flag.String("web", "web/dist", "built frontend directory")
+	dbPath := flag.String("db", "data/patchbay.db", "SQLite database file")
 	flag.Parse()
 
-	definitions, err := workflow.Load(*directory)
-	if err != nil {
-		slog.Error("invalid workflow configuration", "error", err)
+	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	if err := runServer(stop, *addr, *directory, *webDir, *dbPath); err != nil {
+		slog.Error("patchbay failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+// Returning errors lets deferred cleanup finish before main exits the process.
+func runServer(ctx context.Context, addr, directory, webDir, dbPath string) error {
+	definitions, err := workflow.Load(directory)
+	if err != nil {
+		return fmt.Errorf("invalid workflow configuration: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
+		return fmt.Errorf("create database directory: %w", err)
+	}
+	db, err := store.Open(ctx, dbPath)
+	if err != nil {
+		return fmt.Errorf("open database %q: %w", dbPath, err)
+	}
+	// Defers run in reverse order: the runner stops before the database closes.
+	defer func() {
+		if err := db.Close(); err != nil {
+			slog.Error("database close failed", "error", err)
+		}
+	}()
+
 	httpNode := nodes.NewHTTP()
 	runner := engine.New(httpNode.Execute)
 	defer runner.Close()
 	server := &http.Server{
-		Addr: *addr, Handler: httpapi.New(definitions, runner, *webDir),
+		Addr: addr, Handler: httpapi.New(definitions, runner, webDir),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 	}
-	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
-	slog.Info("patchbay M0 starting", "address", *addr, "workflows", len(definitions), "storage", "memory")
+	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "memory", "database", dbPath)
 	select {
 	case err := <-errorsCh:
 		if !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("HTTP server failed", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("HTTP server failed: %w", err)
 		}
-	case <-stop.Done():
+	case <-ctx.Done():
 		slog.Info("shutting down")
 		runner.Close()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(ctx); err != nil {
-			slog.Error("HTTP shutdown failed", "error", err)
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("HTTP shutdown failed: %w", err)
 		}
 	}
+	return nil
 }

@@ -18,6 +18,7 @@ WORKDIR /app
 COPY --from=backend /out/ /app/
 COPY --from=frontend /src/web/dist/ /app/web/dist/
 COPY workflows/ /app/workflows/
+RUN mkdir -m 0700 /app/data && chown 10001:10001 /app/data
 USER 10001:10001
 EXPOSE 8080
 CMD ["/app/patchbay", "-addr", "0.0.0.0:8080"]

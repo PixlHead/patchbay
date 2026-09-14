@@ -36,6 +36,10 @@ local until administrator authentication is added in M1. The app uses a non-root
 container user. The image contains its frontend assets and needs no CDN at runtime.
 The initial image build downloads dependencies; subsequent execution can be offline.
 
+Compose mounts a writable named volume at `/app/data` for SQLite. The rest of the
+container filesystem remains read-only. `make down` preserves this volume; run
+history still lives in memory at this stage.
+
 ## Develop without Docker
 
 Prerequisites: Go 1.26+, Node 20.19+ or 22.12+, and npm. Node 24 LTS is a suitable
@@ -65,6 +69,14 @@ make build
 
 The Makefile keeps Go and npm caches in `.cache/`. This is local tooling state,
 excluded from Git and the Docker build.
+
+The server opens `data/patchbay.db` at startup, creating its parent directory
+when needed. The default `data/` directory is excluded from Git and Docker builds.
+Use `-db` to choose another file, for example:
+
+```sh
+go run ./cmd/server -db ./data/development.db
+```
 
 ## Explore workflow canvases
 
@@ -229,7 +241,8 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" make e2e
 ```
 
 Playwright starts only Patchbay on port 18080, with workflow data from
-`web/tests/fixtures/workflows/`. Both checks call that test instance's own health
+`web/tests/fixtures/workflows/` and a separate SQLite file at
+`.cache/e2e/patchbay.db`. Both checks call that test instance's own health
 endpoint: one expects HTTP 200 and one deliberately expects HTTP 204 to exercise
 unhealthy result rendering. Browser tests cover sequential result display,
 reload/history behavior, mobile layout, and disconnected backend feedback.
@@ -247,9 +260,11 @@ It verifies the connection before returning so path errors are reported early.
 The [modernc.org/sqlite driver](https://pkg.go.dev/modernc.org/sqlite) supports the
 existing build with CGO disabled.
 
-The storage package is not wired into the server yet. Run history still
-lives in memory. After review, its focused tests can be run with
-`go test -race ./internal/store`; they create databases in temporary directories.
+The server now opens SQLite before starting HTTP and closes it after the runner
+stops. Database path or migration errors prevent startup. Run history still lives
+in memory; connecting the runner and history API to storage is the next step.
+After review, the focused tests can be run with
+`go test -race ./cmd/server ./internal/store`; they use temporary directories.
 Opening the database also applies schema version 1 from `internal/store/schema.go`.
 The `runs` table holds run metadata and a JSON copy of the workflow definition;
 `run_steps` holds ordered step results. Timestamps use Unix milliseconds. The

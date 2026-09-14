@@ -6,6 +6,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - ./workflows:/app/workflows:ro
+      - data:/app/data
     read_only: true
     cap_drop: [ALL]
     healthcheck:
@@ -13,3 +14,6 @@ services:
       interval: 5s
       timeout: 2s
       retries: 5
+
+volumes:
+  data:
