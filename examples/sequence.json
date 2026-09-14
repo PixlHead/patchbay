@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "two-services",
+  "name": "Two services, in sequence",
+  "description": "Set both URLs to your own services. Checks execute in order, even if a result is unhealthy.",
+  "steps": [
+    {
+      "id": "first-service",
+      "name": "Check first service",
+      "type": "http.check",
+      "config": {
+        "url": "http://192.168.1.50:8080/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    },
+    {
+      "id": "second-service",
+      "name": "Check second service",
+      "type": "http.check",
+      "config": {
+        "url": "http://192.168.1.51:8080/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

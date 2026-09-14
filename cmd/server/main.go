@@ -19,12 +19,11 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "HTTP listen address")
-	directory := flag.String("workflows", "examples", "directory containing workflow JSON files")
+	directory := flag.String("workflows", "workflows", "directory containing workflow JSON files")
 	webDir := flag.String("web", "web/dist", "built frontend directory")
-	demoURL := flag.String("demo-url", "http://127.0.0.1:9091", "base URL for the bundled demo service")
 	flag.Parse()
 
-	definitions, err := workflow.Load(*directory, *demoURL)
+	definitions, err := workflow.Load(*directory)
 	if err != nil {
 		slog.Error("invalid workflow configuration", "error", err)
 		os.Exit(1)

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "browser-checks",
+  "name": "Browser checks",
+  "description": "Check the test app twice to exercise healthy and unhealthy result rendering.",
+  "steps": [
+    {
+      "id": "healthy",
+      "name": "Expected response",
+      "type": "http.check",
+      "config": {
+        "url": "http://127.0.0.1:18080/api/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    },
+    {
+      "id": "unhealthy",
+      "name": "Unexpected response",
+      "type": "http.check",
+      "config": {
+        "url": "http://127.0.0.1:18080/api/health",
+        "expectedStatus": 204,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

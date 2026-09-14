@@ -14,11 +14,19 @@ import (
 	"patchbay/internal/workflow"
 )
 
+// These API tests use a fake executor, so the configured URL is never contacted.
+func testDefinitions() []workflow.Definition {
+	return []workflow.Definition{{
+		SchemaVersion: 1, ID: "test-workflow", Name: "Test workflow",
+		Steps: []workflow.Step{{
+			ID: "health", Name: "Check health", Type: "http.check",
+			Config: workflow.HTTPConfig{URL: "http://service.invalid/health", ExpectedStatus: 200, TimeoutMS: 1000},
+		}},
+	}}
+}
+
 func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
-	definitions, err := workflow.Load("../../examples", "http://localhost")
-	if err != nil {
-		t.Fatal(err)
-	}
+	definitions := testDefinitions()
 	release := make(chan struct{})
 	runner := engine.New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		select {
@@ -32,7 +40,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	server := httptest.NewServer(New(definitions, runner, t.TempDir()))
 	defer server.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/workflows/healthy-service/runs", nil)
+	req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/workflows/test-workflow/runs", nil)
 	req.Header.Set("Content-Type", "application/json")
 	response, err := server.Client().Do(req)
 	if err != nil {
@@ -51,7 +59,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	if stillRunning.Status != "running" {
 		t.Fatal("request cancellation stopped the run")
 	}
-	conflict, err := server.Client().Post(server.URL+"/api/workflows/healthy-service/runs", "application/json", nil)
+	conflict, err := server.Client().Post(server.URL+"/api/workflows/test-workflow/runs", "application/json", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,10 +92,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 }
 
 func TestAPIErrorResponses(t *testing.T) {
-	definitions, err := workflow.Load("../../examples", "http://localhost")
-	if err != nil {
-		t.Fatal(err)
-	}
+	definitions := testDefinitions()
 	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil })
 	defer runner.Close()
 	handler := New(definitions, runner, t.TempDir())
@@ -99,8 +104,8 @@ func TestAPIErrorResponses(t *testing.T) {
 		{"GET", "/api/runs", "", "", 200},
 		{"GET", "/api/runs/missing", "", "", 404},
 		{"POST", "/api/workflows/missing/runs", "application/json", "", 404},
-		{"POST", "/api/workflows/healthy-service/runs", "text/plain", "", 415},
-		{"POST", "/api/workflows/healthy-service/runs", "application/json", `{}`, 400},
+		{"POST", "/api/workflows/test-workflow/runs", "text/plain", "", 415},
+		{"POST", "/api/workflows/test-workflow/runs", "application/json", `{}`, 400},
 		{"GET", "/api/missing", "", "", 404},
 	}
 	for _, test := range tests {

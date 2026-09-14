@@ -79,9 +79,8 @@ func Validate(d Definition) error {
 	return nil
 }
 
-// Load reads JSON files once at startup. Only the bundled demo's URL placeholder
-// is expanded; this is not a general expression or environment-variable engine.
-func Load(directory, demoURL string) ([]Definition, error) {
+// Load reads and validates workflow JSON files once at startup.
+func Load(directory string) ([]Definition, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("read workflows: %w", err)
@@ -108,11 +107,6 @@ func Load(directory, demoURL string) ([]Definition, error) {
 		}
 		if err := decoder.Decode(new(any)); err != io.EOF {
 			return nil, fmt.Errorf("%s: expected exactly one JSON document", path)
-		}
-		for i := range d.Steps {
-			if suffix, ok := strings.CutPrefix(d.Steps[i].Config.URL, "${DEMO_URL}/"); ok {
-				d.Steps[i].Config.URL = strings.TrimRight(demoURL, "/") + "/" + suffix
-			}
 		}
 		if err := Validate(d); err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)

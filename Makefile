@@ -1,7 +1,7 @@
 export GOCACHE := $(CURDIR)/.cache/go-build
 export npm_config_cache := $(CURDIR)/.cache/npm
 
-.PHONY: install build test e2e fmt api web demo up down
+.PHONY: install build test e2e fmt api web up down
 
 install:
 	npm --prefix web ci
@@ -10,7 +10,6 @@ build:
 	npm --prefix web run build
 	mkdir -p bin
 	go build -o bin/patchbay ./cmd/server
-	go build -o bin/patchbay-demo ./cmd/demo
 
 test:
 	go test -race ./...
@@ -29,13 +28,10 @@ api:
 web:
 	npm --prefix web run dev
 
-demo:
-	go run ./cmd/demo
-
 up:
 	docker compose up --build --wait
 	docker ps
 
 down:
-	docker compose down
+	docker compose down --remove-orphans
 	docker ps

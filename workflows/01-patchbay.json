@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "patchbay-health",
+  "name": "Patchbay health",
+  "description": "Check this Patchbay server's health endpoint.",
+  "steps": [
+    {
+      "id": "health",
+      "name": "Check Patchbay",
+      "type": "http.check",
+      "config": {
+        "url": "http://127.0.0.1:8080/api/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

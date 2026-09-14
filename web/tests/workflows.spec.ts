@@ -1,34 +1,29 @@
 import { expect, test } from '@playwright/test';
 
-test('run healthy, unhealthy, sequential, and timeout examples and retain history on reload', async ({
+test('run sequential checks and retain healthy and unhealthy results on reload', async ({
   page,
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Healthy service', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Run workflow', exact: true }).click();
   const results = page.getByRole('region', { name: 'Run results' });
-  await expect(results.getByText('All services healthy')).toBeVisible();
-  await expect(results.getByText('Received expected HTTP 200')).toBeVisible();
+  const steps = results.getByRole('article');
+  await expect(results.getByText('Completed', { exact: true })).toBeVisible();
+  await expect(steps.getByText('Received expected HTTP 200')).toBeVisible();
+  await expect(steps.getByText('Expected HTTP 204; received HTTP 200')).toBeVisible();
+  await expect(steps.getByText('Healthy', { exact: true })).toBeVisible();
+  await expect(steps.getByText('Unhealthy', { exact: true })).toBeVisible();
+  await expect(results.getByRole('heading', { level: 4 })).toHaveText([
+    'Expected response',
+    'Unexpected response',
+  ]);
 
   await page.reload();
-  await expect(results.getByText('Received expected HTTP 200')).toBeVisible();
-
-  await page.getByRole('button', { name: /02 Unhealthy service/ }).click();
-  await page.getByRole('button', { name: 'Run workflow', exact: true }).click();
-  await expect(results.getByText('Expected HTTP 200; received HTTP 503')).toBeVisible();
-  await expect(results.getByText('Completed', { exact: true })).toBeVisible();
-
-  await page.getByRole('button', { name: /03 Two services/ }).click();
-  await page.getByRole('button', { name: 'Run workflow', exact: true }).click();
-  await expect(results.getByText('Expected HTTP 200; received HTTP 503')).toBeVisible();
-  await expect(results.getByText('Received expected HTTP 200')).toBeVisible();
-
-  await page.getByRole('button', { name: /04 Service timeout/ }).click();
-  await page.getByRole('button', { name: 'Run workflow', exact: true }).click();
-  await expect(results.getByText('No response within 500 ms')).toBeVisible();
-  await expect(results.getByText('No response', { exact: true })).toBeVisible();
+  await expect(steps.getByText('Received expected HTTP 200')).toBeVisible();
+  await expect(steps.getByText('Expected HTTP 204; received HTTP 200')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
   await page.screenshot({ path: 'test-results/desktop.png', fullPage: true });
   expect(errors).toEqual([]);
 });
@@ -36,7 +31,7 @@ test('run healthy, unhealthy, sequential, and timeout examples and retain histor
 test('mobile layout and backend-disconnection feedback', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'Healthy service', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,

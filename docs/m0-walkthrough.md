@@ -16,6 +16,9 @@ React: startRun()
 ## 1. Startup creates the dependencies
 
 Open `cmd/server/main.go`. `workflow.Load` reads and validates the JSON definitions.
+Startup loads `workflows/`; its starter check calls the app's own health
+endpoint. Use `make api` during native development or `make up` with Docker.
+The loader uses each configured URL as written.
 `nodes.NewHTTP` constructs a reusable HTTP client. `engine.New(httpNode.Execute)`
 gives the runner the function that can execute its steps. `httpapi.New` connects
 those values to HTTP handlers.
@@ -34,7 +37,8 @@ status, and a result record for each step. Clicking Run twice produces two
 different run IDs. It does not change the definition.
 
 The loader reads definitions once. There is no file watcher or write API. Editing
-a sample and restarting the server is the entire authoring loop for M0.
+a JSON file in the selected directory and restarting the server is the entire
+authoring loop for M0.
 
 ## 3. The browser requests execution
 
@@ -108,11 +112,16 @@ server shuts down. No persistent recovery is implied: this is in-memory M0.
 
 ## Exercises before adding M1
 
+Copy a template from `examples/` into `workflows/` and point it at an app you
+control. Restart Patchbay after changing the file. For timeout experiments, add
+a deliberately delayed health endpoint to that app.
+
 1. Change a sample's expected HTTP status to 503. Predict the result, restart,
    and check your prediction.
-2. Change the timeout example from 500 ms to 3000 ms. Explain why it becomes healthy.
-3. Stop the demo server and inspect the difference between a connection failure
-   and an HTTP 503 response.
+2. Set a delayed endpoint's timeout first below and then above its response
+   delay. Explain the change in its health result.
+3. Stop your target app and inspect the difference between a connection failure
+   and a deliberately returned HTTP 503 response.
 4. Put two steps into a new JSON workflow and verify their timestamps show order.
 5. Add an invalid timeout and read the startup validation error.
 6. Add a small response field, such as the HTTP protocol, from the executor through

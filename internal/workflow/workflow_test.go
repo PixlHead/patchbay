@@ -1,9 +1,10 @@
 package workflow
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 )
 
@@ -42,20 +43,22 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestLoadExamplesAndRejectBadFiles(t *testing.T) {
-	definitions, err := Load("../../examples", "http://localhost:9999")
+func TestLoadJSONAndRejectBadFiles(t *testing.T) {
+	dir := t.TempDir()
+	want := validDefinition()
+	data, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(definitions) != 4 {
-		t.Fatalf("got %d examples", len(definitions))
+	if err := os.WriteFile(filepath.Join(dir, "workflow.json"), data, 0600); err != nil {
+		t.Fatal(err)
 	}
-	for _, d := range definitions {
-		for _, step := range d.Steps {
-			if !strings.HasPrefix(step.Config.URL, "http://localhost:9999/") {
-				t.Fatal("demo URL was not resolved")
-			}
-		}
+	definitions, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(definitions, []Definition{want}) {
+		t.Fatalf("loaded definitions differ from the file: %+v", definitions)
 	}
 	tests := []string{
 		`{"schemaVersion":1,"unknown":true}`,
@@ -68,7 +71,7 @@ func TestLoadExamplesAndRejectBadFiles(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "bad.json"), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Load(dir, "http://localhost"); err == nil {
+		if _, err := Load(dir); err == nil {
 			t.Fatalf("accepted %s", content)
 		}
 	}

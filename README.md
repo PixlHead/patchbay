@@ -1,6 +1,6 @@
 # Patchbay · M0
 
-A small local workflow runner, built with Go and React. Choose a sample workflow,
+A small local workflow runner, built with Go and React. Load a workflow,
 run its HTTP checks, and inspect the results in your browser.
 
 M0 is a working skeleton. Its steps execute sequentially, one workflow
@@ -16,14 +16,19 @@ From this project directory, with Docker's engine running:
 docker compose up --build --wait
 ```
 
-Open **http://localhost:8080**. Compose builds the app and a small demo service.
-The demo service provides healthy, unhealthy, and slow responses on the internal
-Docker network. It needs no external API or account.
+Open **http://localhost:8080**. This starts only Patchbay and loads JSON files
+from `workflows/`. The included **Patchbay health** workflow checks the app's own
+`/api/health` endpoint, so it works without another service or internet access.
+It demonstrates a check while the app is running; it cannot alert if Patchbay is down.
+
+To clean up containers left by an older setup, run `make down` before starting
+this version. It also removes orphaned containers belonging to this Compose
+project. Stopping or recreating the app clears its in-memory run history.
 
 ```sh
 docker compose logs -f app     # Follow application logs
 docker compose restart app     # Reload edited workflow files; clear run history
-docker compose down            # Stop this project's containers
+make down                      # Stop this project's containers
 ```
 
 The published port binds to loopback. This M0 application has no login; keep it
@@ -40,12 +45,11 @@ choice for a fresh installation. Dependencies are pinned in `web/package-lock.js
 make install
 ```
 
-Use three terminals, all in the project directory:
+Use two terminals, both in the project directory:
 
 ```sh
-make demo     # Terminal 1: deterministic HTTP service on 127.0.0.1:9091
-make api      # Terminal 2: Go API on 127.0.0.1:8080
-make web      # Terminal 3: React/Vite on http://127.0.0.1:5173
+make api      # Terminal 1: Go API on 127.0.0.1:8080; loads workflows/
+make web      # Terminal 2: React/Vite on http://127.0.0.1:5173
 ```
 
 Visit **http://127.0.0.1:5173** during frontend development. Vite proxies `/api`
@@ -56,8 +60,7 @@ To run the built frontend through Go instead of Vite:
 
 ```sh
 make build
-./bin/patchbay-demo        # Terminal 1
-./bin/patchbay             # Terminal 2; open http://127.0.0.1:8080
+./bin/patchbay             # Open http://127.0.0.1:8080
 ```
 
 The Makefile keeps Go and npm caches in `.cache/`. This is local tooling state,
@@ -90,19 +93,16 @@ The existing backend requests and execution behavior are unchanged.
 `web/src/App.tsx` owns draft state by workflow ID across page navigation.
 `web/src/CanvasPage.tsx` provides the New workflow form.
 
-## Try the four examples
+## Example workflows
 
-| Example | Expected result |
-| --- | --- |
-| Healthy service | Run completes; the service is healthy with HTTP 200. |
-| Unhealthy service | Run completes; the service is unhealthy with HTTP 503. |
-| Two services, in sequence | The 503 check completes before the healthy check starts; both results are shown. |
-| Service timeout | Run completes; the service is unhealthy because it exceeds a 500 ms deadline. |
+`examples/http-check.json` is a single HTTP check; `examples/sequence.json`
+checks two services in order. Copy a template into `workflows/`, change its URLs
+to services you control, and restart the app. These files are configuration
+templates; no target service is bundled or started for them.
 
-To observe an unreachable service, stop only the demo process (or run
-`docker compose stop demo`) and run a workflow. It should report an unhealthy
-result with a connection error. Restart the demo afterward with
-`docker compose start demo` or `make demo`.
+For manual local testing, start your own app and point a workflow at its health
+endpoint. The included **Patchbay health** workflow is also ready to run against
+Patchbay itself.
 
 **“Completed” describes execution, while “Healthy” describes the service.**
 A health check that correctly observes HTTP 503 has completed its job. An
@@ -115,7 +115,7 @@ than followed, and normal HTTPS certificate validation remains enabled.
 
 ## Change a workflow
 
-Edit a file in `examples/`, or add another `.json` file using this structure:
+Edit a file in `workflows/`, or add another `.json` file using this structure:
 
 ```json
 {
@@ -139,14 +139,18 @@ Edit a file in `examples/`, or add another `.json` file using this structure:
 ```
 
 Replace that example address with a service you control, then restart the app.
+Keep at least one valid workflow in the selected directory; M0 still rejects
+an empty workflow directory.
 Checks originate from the Go process: inside Docker, `localhost` means that
 container. Use the target's LAN address or its address on a shared Docker network
 when appropriate.
 
-Only the sample files use `${DEMO_URL}`. The loader replaces that prefix with
-the `-demo-url` flag, defaulting to `http://127.0.0.1:9091` for native development.
-Compose sets it to `http://demo:9091`. Ordinary absolute URLs are left untouched.
-This single demo convenience is not a general template language.
+URLs are used as written. The loader does not expand variables or templates.
+
+The server defaults to `-workflows workflows`; pass a different directory when
+needed. The starter health check uses port 8080. If you change the native server's
+`-addr` port, update that check's URL too. Changing only Docker's published host
+port does not change the app's internal port or the starter check.
 
 The loader rejects malformed JSON, unknown fields, multiple JSON documents,
 unsupported schema/node types, invalid URLs, duplicate workflow/step IDs, empty
@@ -162,7 +166,6 @@ as the later graph model develops.
 
 ```text
 cmd/server/main.go              Wire dependencies, load files, start/shut down HTTP
-cmd/demo/main.go                Deterministic local test service
 internal/workflow/workflow.go   Workflow types, validation, JSON-file loading
 internal/nodes/http.go          Execute one HTTP check
 internal/engine/runner.go       Run steps sequentially; own in-memory history
@@ -170,7 +173,9 @@ internal/httpapi/api.go         Map HTTP routes to workflow/runner operations
 web/src/api.ts                 TypeScript API types and fetch helper
 web/src/App.tsx                Workflow selection, polling, run/result views
 web/src/style.css              Responsive interface styling
-examples/                     Four editable sample workflow definitions
+workflows/                    Normal workflow definitions (one starter check)
+examples/                     Templates for checking your own services
+web/tests/fixtures/           Workflow data used only by browser tests
 ```
 
 For a guided explanation, read [the M0 walkthrough](docs/m0-walkthrough.md).
@@ -186,7 +191,7 @@ and the remaining environment limitations.
 | Method and route | Response |
 | --- | --- |
 | `GET /api/health` | App readiness, not monitored-service health |
-| `GET /api/workflows` | Loaded workflow definitions with resolved URLs |
+| `GET /api/workflows` | Loaded workflow definitions |
 | `POST /api/workflows/{id}/runs` | `202` with a run ID and `Location` header |
 | `GET /api/runs` | Latest runs first, up to 100 |
 | `GET /api/runs/{id}` | Current run and individual step results |
@@ -195,7 +200,7 @@ Starting a run requires an empty body and `Content-Type: application/json`:
 
 ```sh
 curl -X POST -H 'Content-Type: application/json' \
-  http://127.0.0.1:8080/api/workflows/healthy-service/runs
+  http://127.0.0.1:8080/api/workflows/patchbay-health/runs
 ```
 
 Use the returned ID to poll `GET /api/runs/{id}`. A second start while a workflow
@@ -207,7 +212,7 @@ The run continues after the request finishes or the browser closes.
 
 ```sh
 make test              # Go tests with race detection + TypeScript checking
-make build             # Production frontend and both native Go binaries
+make build             # Production frontend and native app binary
 make fmt               # gofmt and Prettier
 ```
 
@@ -223,9 +228,13 @@ PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" npm --prefix web exec -- playw
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" make e2e
 ```
 
-Playwright starts dedicated app/demo servers on ports 18080 and 19091. It checks
-all four workflows, reload/history behavior, mobile layout, and disconnected
-backend feedback. Screenshots go to `web/test-results/`. Linux installations may
+Playwright starts only Patchbay on port 18080, with workflow data from
+`web/tests/fixtures/workflows/`. Both checks call that test instance's own health
+endpoint: one expects HTTP 200 and one deliberately expects HTTP 204 to exercise
+unhealthy result rendering. Browser tests cover sequential result display,
+reload/history behavior, mobile layout, and disconnected backend feedback.
+Timeouts, HTTP 503, and unreachable targets remain covered by Go's temporary
+HTTP test servers. Screenshots go to `web/test-results/`. Linux installations may
 also need Playwright's documented browser system dependencies.
 
 ## M0 completion and next steps
