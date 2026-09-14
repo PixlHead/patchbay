@@ -14,10 +14,14 @@ func TestOpenPersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.ExecContext(ctx, "CREATE TABLE notes (body TEXT NOT NULL)"); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO runs
+        (id, workflow_id, workflow_name, definition_json, status, created_at)
+        VALUES ('run-1', 'workflow-1', 'Example', '{}', 'running', 0)`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "INSERT INTO notes (body) VALUES (?)", "saved"); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO run_steps
+        (run_id, step_id, position, name, status)
+        VALUES ('run-1', 'check', 0, 'Check health', 'pending')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -29,12 +33,12 @@ func TestOpenPersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	var body string
-	if err := reopened.QueryRowContext(ctx, "SELECT body FROM notes").Scan(&body); err != nil {
+	var status string
+	if err := reopened.QueryRowContext(ctx, "SELECT status FROM run_steps WHERE run_id = ?", "run-1").Scan(&status); err != nil {
 		t.Fatal(err)
 	}
-	if body != "saved" {
-		t.Fatalf("wanted saved data after reopening, got %q", body)
+	if status != "pending" {
+		t.Fatalf("wanted pending step after reopening, got %q", status)
 	}
 }
 

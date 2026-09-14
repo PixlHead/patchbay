@@ -247,10 +247,16 @@ It verifies the connection before returning so path errors are reported early.
 The [modernc.org/sqlite driver](https://pkg.go.dev/modernc.org/sqlite) supports the
 existing build with CGO disabled.
 
-This first storage change is not wired into the server yet. Run history still
+The storage package is not wired into the server yet. Run history still
 lives in memory. After review, its focused tests can be run with
 `go test -race ./internal/store`; they create databases in temporary directories.
-Versioned schema creation is the next separate change.
+Opening the database also applies schema version 1 from `internal/store/schema.go`.
+The `runs` table holds run metadata and a JSON copy of the workflow definition;
+`run_steps` holds ordered step results. Timestamps use Unix milliseconds. The
+tables and SQLite's `user_version` number are created in one transaction.
+Reopening the current version preserves existing data; unsupported versions are
+rejected. The migration tests cover reopening, conflicts, and version rejection.
+Writing run records is the next separate change.
 
 ## M0 completion and next steps
 

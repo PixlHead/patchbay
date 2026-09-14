@@ -11,7 +11,8 @@ import (
 	_ "modernc.org/sqlite" // Register the pure-Go "sqlite" database driver.
 )
 
-// Open opens or creates a SQLite file. Its parent directory must already exist.
+// Open opens or creates a SQLite file and applies its schema migrations.
+// Its parent directory must already exist.
 // The caller owns the returned database and must close it during shutdown.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
 	if path == "" {
@@ -42,6 +43,10 @@ func Open(ctx context.Context, path string) (*sql.DB, error) {
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("connect to database: %w", err)
+	}
+	if err := migrate(ctx, db); err != nil {
+		db.Close()
+		return nil, err
 	}
 	return db, nil
 }
