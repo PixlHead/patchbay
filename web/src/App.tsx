@@ -123,8 +123,8 @@ function WorkflowPage({
   const savedWorkflow = selected && 'steps' in selected ? selected : undefined;
   const history = runs.filter((run) => run.workflowId === selected?.id);
   const inspectedRun = history.find((run) => run.id === runId) ?? history[0];
-  const busy = runs.some((run) => run.status === 'running');
 
+  // Saved running statuses can outlive a server process; Start enforces capacity.
   async function startRun() {
     if (!savedWorkflow) return;
     setStarting(true);
@@ -185,9 +185,9 @@ function WorkflowPage({
             <p>Choose an example, run its checks, and explore what happened.</p>
           </div>
           <div className="memory-note">
-            Session history
+            Saved history
             <br />
-            <span>Last 100 runs · Cleared on server restart</span>
+            <span>Latest 100 runs · Kept across restarts</span>
           </div>
         </aside>
 
@@ -224,11 +224,11 @@ function WorkflowPage({
                 {savedWorkflow && (
                   <button
                     className="run-button"
-                    disabled={starting || busy || !!connectionError}
+                    disabled={starting || !!connectionError}
                     onClick={() => void startRun()}
                   >
                     <span aria-hidden="true">▶</span>
-                    {starting ? 'Starting…' : busy ? 'Workflow running…' : 'Run workflow'}
+                    {starting ? 'Starting…' : 'Run workflow'}
                   </button>
                 )}
               </div>
@@ -283,7 +283,7 @@ function WorkflowPage({
                   <div className="results-heading">
                     <h2>Execution history</h2>
                     <span className="subtle">
-                      {history.length} {history.length === 1 ? 'run' : 'runs'} this session
+                      {history.length} {history.length === 1 ? 'run' : 'runs'} shown
                     </span>
                   </div>
                   {history.length === 0 ? (
@@ -291,7 +291,7 @@ function WorkflowPage({
                       <div className="empty-symbol" aria-hidden="true">
                         ↳
                       </div>
-                      <h3>Ready for its first run</h3>
+                      <h3>No recent runs</h3>
                       <p>
                         Run this workflow to see each check’s status,
                         <br className="desktop-break" /> response time, and result.
@@ -310,10 +310,9 @@ function WorkflowPage({
                             <div>
                               <Status status={run.status} />
                               <time dateTime={run.startedAt}>
-                                {new Date(run.startedAt).toLocaleTimeString([], {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  second: '2-digit',
+                                {new Date(run.startedAt).toLocaleString([], {
+                                  dateStyle: 'short',
+                                  timeStyle: 'medium',
                                 })}
                               </time>
                             </div>
@@ -349,7 +348,7 @@ function RunDetails({ run }: { run: Run }) {
         <span>
           {run.finishedAt
             ? `${Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())} ms total`
-            : 'Checks are in progress…'}
+            : 'No completion recorded yet'}
         </span>
         <span>
           {unhealthy > 0

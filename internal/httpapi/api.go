@@ -1,18 +1,24 @@
-// Package httpapi translates HTTP requests into calls to the runner.
+// Package httpapi translates HTTP requests into execution and saved-history operations.
 package httpapi
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"patchbay/internal/engine"
+	"patchbay/internal/store"
 	"patchbay/internal/workflow"
 )
 
-func New(definitions []workflow.Definition, runner *engine.Runner, webDir string) http.Handler {
+// New uses the caller-owned database for history reads, including active runs.
+func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, webDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -55,12 +61,28 @@ func New(definitions []workflow.Definition, runner *engine.Runner, webDir string
 		writeError(w, http.StatusNotFound, "workflow not found")
 	})
 	mux.HandleFunc("GET /api/runs", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, runner.List())
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		runs, err := store.ListRuns(ctx, db, 100)
+		if err != nil {
+			slog.Error("could not read run history", "error", err)
+			writeError(w, http.StatusInternalServerError, "could not load run history")
+			return
+		}
+		writeJSON(w, http.StatusOK, runs)
 	})
 	mux.HandleFunc("GET /api/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
-		run, ok := runner.Get(r.PathValue("id"))
-		if !ok {
-			writeError(w, http.StatusNotFound, "run not found; runs are cleared when the server restarts")
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		id := r.PathValue("id")
+		run, err := store.GetRun(ctx, db, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "run not found")
+			return
+		}
+		if err != nil {
+			slog.Error("could not read run", "run_id", id, "error", err)
+			writeError(w, http.StatusInternalServerError, "could not load run")
 			return
 		}
 		writeJSON(w, http.StatusOK, run)

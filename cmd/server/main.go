@@ -63,14 +63,14 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	})
 	defer runner.Close()
 	server := &http.Server{
-		Addr: addr, Handler: httpapi.New(definitions, runner, webDir),
+		Addr: addr, Handler: httpapi.New(definitions, runner, db, webDir),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 	}
 	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
-	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "memory", "database", dbPath)
+	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath)
 	select {
 	case err := <-errorsCh:
 		if !errors.Is(err, http.ErrServerClosed) {

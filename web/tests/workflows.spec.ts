@@ -43,3 +43,34 @@ test('mobile layout and backend-disconnection feedback', async ({ page }) => {
   await page.unroute('**/api/**');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+test('an old unfinished run does not disable starting another workflow', async ({ page }) => {
+  await page.route('**/api/runs', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'old-unfinished',
+          workflowId: 'browser-checks',
+          workflowName: 'Browser checks',
+          status: 'running',
+          startedAt: '2025-01-02T12:00:00Z',
+          steps: [{ id: 'healthy', name: 'Expected response', status: 'running' }],
+        },
+      ],
+    }),
+  );
+  // Capacity is checked when starting; the UI still displays the server's refusal.
+  await page.route('**/api/workflows/browser-checks/runs', (route) =>
+    route.fulfill({
+      status: 409,
+      json: { error: 'another workflow is running; wait for it to finish' },
+    }),
+  );
+  await page.goto('/');
+  await expect(page.getByText('No completion recorded yet', { exact: true })).toBeVisible();
+  const start = page.getByRole('button', { name: 'Run workflow', exact: true });
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(page.getByRole('alert')).toContainText('another workflow is running');
+  await expect(start).toBeEnabled();
+});

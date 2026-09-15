@@ -3,11 +3,11 @@
 A small local workflow runner, built with Go and React. Load a workflow,
 run its HTTP checks, and inspect the results in your browser.
 
-M0 is a working skeleton. Its steps execute sequentially, one workflow
-can run at a time, and the last 100 runs are displayed from memory. Restarting the
-server clears that displayed history. Run snapshots, step progress, and completed
-results are saved in SQLite, but the history API still reads memory. Workflow
-definitions live in JSON files and are loaded at startup.
+The M0 skeleton is gaining M1 persistence. Its steps execute sequentially and
+one workflow can run at a time. Run snapshots, step progress, and completed
+results are saved in SQLite. The frontend displays the latest 100 saved runs
+across workflows, including earlier server sessions. Workflow definitions live
+in JSON files and are loaded at startup.
 
 ## Start with Docker
 
@@ -24,11 +24,11 @@ It demonstrates a check while the app is running; it cannot alert if Patchbay is
 
 To clean up containers left by an older setup, run `make down` before starting
 this version. It also removes orphaned containers belonging to this Compose
-project. Stopping or recreating the app clears its in-memory run history.
+project. Stopping or recreating the app preserves saved run history.
 
 ```sh
 docker compose logs -f app     # Follow application logs
-docker compose restart app     # Reload edited workflow files; clear run history
+docker compose restart app     # Reload edited workflow files; keep run history
 make down                      # Stop this project's containers
 ```
 
@@ -38,8 +38,8 @@ container user. The image contains its frontend assets and needs no CDN at runti
 The initial image build downloads dependencies; subsequent execution can be offline.
 
 Compose mounts a writable named volume at `/app/data` for SQLite. The rest of the
-container filesystem remains read-only. `make down` preserves this volume; run
-history still lives in memory at this stage.
+container filesystem remains read-only. `make down` preserves this volume and
+its saved history. Deleting the volume deletes that history.
 
 ## Develop without Docker
 
@@ -181,8 +181,8 @@ as the later graph model develops.
 cmd/server/main.go              Wire dependencies, load files, start/shut down HTTP
 internal/workflow/workflow.go   Workflow types, validation, JSON-file loading
 internal/nodes/http.go          Execute one HTTP check
-internal/engine/runner.go       Run steps sequentially; own in-memory history
-internal/httpapi/api.go         Map HTTP routes to workflow/runner operations
+internal/engine/runner.go       Run steps sequentially; save execution progress
+internal/httpapi/api.go         Map HTTP routes to execution and saved history
 web/src/api.ts                 TypeScript API types and fetch helper
 web/src/App.tsx                Workflow selection, polling, run/result views
 web/src/style.css              Responsive interface styling
@@ -206,8 +206,8 @@ and the remaining environment limitations.
 | `GET /api/health` | App readiness, not monitored-service health |
 | `GET /api/workflows` | Loaded workflow definitions |
 | `POST /api/workflows/{id}/runs` | `202` with a run ID and `Location` header |
-| `GET /api/runs` | Latest runs first, up to 100 |
-| `GET /api/runs/{id}` | Current run and individual step results |
+| `GET /api/runs` | Latest 100 saved runs across workflows, newest first |
+| `GET /api/runs/{id}` | Saved run and step results, including runs from before restart |
 
 Starting a run requires an empty body and `Content-Type: application/json`:
 
@@ -282,9 +282,20 @@ steps that never executed are skipped. A failed final save is logged and leaves
 SQLite at its last successfully saved snapshot; memory keeps the latest result.
 External actions are never retried because a database write failed.
 
-The history API still reads memory, so earlier runs are not displayed after a
-restart yet. Switching those reads to SQLite is the next separate change.
-Recovery of runs interrupted by a crash is also still to come.
+Both history endpoints now read SQLite using the request context and a
+five-second timeout. The list returns the newest 100 runs across workflows;
+the frontend filters that list for the selected workflow. Older runs remain in
+the database and can be fetched by ID. An empty list is `[]`, a missing ID returns
+404, and a database read failure returns 500 with details in server logs.
+
+Restarting with the same database preserves saved history. Native development
+uses `data/patchbay.db`; Docker uses its named volume, so those installations
+have separate histories. A workflow page shows runs matching its current ID.
+Recovery of interrupted runs is still to come: crashes, failed final saves, or
+records from the earlier initial-save-only version may leave a saved `running`
+status. Reading history does not resume those runs. The Run button relies on the
+server's current admission check rather than treating saved statuses as proof
+that an execution is active.
 After review, the focused tests can be run with
 `go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
 Opening the database also applies schema version 1 from `internal/store/schema.go`.
@@ -315,8 +326,8 @@ partial history.
 runs ordered by creation time newest first, then by run ID descending for ties.
 The list and its step results share one read transaction. An empty history
 returns an empty list; invalid limits or read errors return an error without
-partial results. Run creation and execution updates are connected to storage;
-history API reads still need to be connected.
+partial results. Run creation, execution updates, and history API reads are
+connected to storage.
 
 ## M0 completion and next steps
 

@@ -2,16 +2,19 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"patchbay/internal/engine"
+	"patchbay/internal/store"
 	"patchbay/internal/workflow"
 )
 
@@ -27,6 +30,7 @@ func testDefinitions() []workflow.Definition {
 }
 
 func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
+	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
 	release := make(chan struct{})
 	runner := engine.New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
@@ -36,9 +40,13 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 		case <-ctx.Done():
 			return workflow.HTTPResult{}, ctx.Err()
 		}
-	}, nil, nil)
+	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+		return store.CreateRun(ctx, db, run, definition)
+	}, func(ctx context.Context, run engine.Run) error {
+		return store.UpdateRun(ctx, db, run)
+	})
 	defer runner.Close()
-	server := httptest.NewServer(New(definitions, runner, t.TempDir()))
+	server := httptest.NewServer(New(definitions, runner, db, t.TempDir()))
 	defer server.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/workflows/test-workflow/runs", nil)
@@ -93,6 +101,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 }
 
 func TestRunSaveFailureReturnsServerError(t *testing.T) {
+	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	executed := false
 	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		executed = true
@@ -101,7 +110,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 		return errors.New("storage unavailable")
 	}, nil)
 	defer runner.Close()
-	handler := New(testDefinitions(), runner, t.TempDir())
+	handler := New(testDefinitions(), runner, db, t.TempDir())
 	request := httptest.NewRequest(http.MethodPost, "/api/workflows/test-workflow/runs", nil)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -116,10 +125,11 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 }
 
 func TestAPIErrorResponses(t *testing.T) {
+	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
 	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
 	defer runner.Close()
-	handler := New(definitions, runner, t.TempDir())
+	handler := New(definitions, runner, db, t.TempDir())
 	tests := []struct {
 		method, path, contentType, body string
 		want                            int
@@ -147,4 +157,14 @@ func TestAPIErrorResponses(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+func openTestDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := store.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
 }
