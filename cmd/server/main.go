@@ -56,7 +56,9 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	}()
 
 	httpNode := nodes.NewHTTP()
-	runner := engine.New(httpNode.Execute)
+	runner := engine.New(httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+		return store.CreateRun(ctx, db, run, definition)
+	})
 	defer runner.Close()
 	server := &http.Server{
 		Addr: addr, Handler: httpapi.New(definitions, runner, webDir),

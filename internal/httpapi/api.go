@@ -42,6 +42,8 @@ func New(definitions []workflow.Definition, runner *engine.Runner, webDir string
 					code = http.StatusConflict
 				} else if errors.Is(err, engine.ErrClosed) {
 					code = http.StatusServiceUnavailable
+				} else if errors.Is(err, engine.ErrRecordRun) {
+					code = http.StatusInternalServerError
 				}
 				writeError(w, code, err.Error())
 				return

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 		case <-ctx.Done():
 			return workflow.HTTPResult{}, ctx.Err()
 		}
-	})
+	}, nil)
 	defer runner.Close()
 	server := httptest.NewServer(New(definitions, runner, t.TempDir()))
 	defer server.Close()
@@ -91,9 +92,32 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	}
 }
 
+func TestRunSaveFailureReturnsServerError(t *testing.T) {
+	executed := false
+	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+		executed = true
+		return workflow.HTTPResult{}, nil
+	}, func(context.Context, engine.Run, workflow.Definition) error {
+		return errors.New("storage unavailable")
+	})
+	defer runner.Close()
+	handler := New(testDefinitions(), runner, t.TempDir())
+	request := httptest.NewRequest(http.MethodPost, "/api/workflows/test-workflow/runs", nil)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	runner.Close()
+	if response.Code != http.StatusInternalServerError || response.Header().Get("Location") != "" {
+		t.Fatalf("expected a rejected run with HTTP 500, got %d: %s", response.Code, response.Body.String())
+	}
+	if executed || len(runner.List()) != 0 {
+		t.Fatal("a run was executed or accepted despite its save failing")
+	}
+}
+
 func TestAPIErrorResponses(t *testing.T) {
 	definitions := testDefinitions()
-	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil })
+	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil)
 	defer runner.Close()
 	handler := New(definitions, runner, t.TempDir())
 	tests := []struct {

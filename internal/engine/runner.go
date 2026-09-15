@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -13,8 +14,9 @@ import (
 )
 
 var (
-	ErrBusy   = errors.New("another workflow is running; wait for it to finish")
-	ErrClosed = errors.New("the runner is shutting down")
+	ErrBusy      = errors.New("another workflow is running; wait for it to finish")
+	ErrClosed    = errors.New("the runner is shutting down")
+	ErrRecordRun = errors.New("could not save run")
 )
 
 type StepRun struct {
@@ -41,21 +43,28 @@ type Run struct {
 // executor without a network server or a plugin framework.
 type ExecuteStep func(context.Context, workflow.Step) (workflow.HTTPResult, error)
 
+// RecordNewRun saves the initial run and workflow snapshot before execution.
+// Implementations must respect context cancellation and save the snapshot atomically.
+type RecordNewRun func(context.Context, Run, workflow.Definition) error
+
 type Runner struct {
-	mu      sync.Mutex
-	runs    map[string]Run
-	order   []string
-	active  bool
-	closed  bool
-	ctx     context.Context
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	execute ExecuteStep
+	mu     sync.Mutex
+	runs   map[string]Run
+	order  []string
+	active bool
+	closed bool
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	execute      ExecuteStep
+	recordNewRun RecordNewRun
 }
 
-func New(execute ExecuteStep) *Runner {
+// A nil recorder keeps the runner in memory, as used by the executor tests.
+func New(execute ExecuteStep, recordNewRun RecordNewRun) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runner{runs: make(map[string]Run), ctx: ctx, cancel: cancel, execute: execute}
+	return &Runner{runs: make(map[string]Run), ctx: ctx, cancel: cancel, execute: execute, recordNewRun: recordNewRun}
 }
 
 func (r *Runner) Start(definition workflow.Definition) (Run, error) {
@@ -77,6 +86,16 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 	}
 	for i, step := range definition.Steps {
 		run.Steps[i] = StepRun{ID: step.ID, Name: step.Name, Status: "pending"}
+	}
+	if r.recordNewRun != nil {
+		// Keep admission locked during the save; bound how long other calls wait.
+		// This context belongs to the runner, not the originating HTTP request.
+		saveCtx, cancel := context.WithTimeout(r.ctx, 5*time.Second)
+		err := r.recordNewRun(saveCtx, copyRun(run), definition)
+		cancel()
+		if err != nil {
+			return Run{}, fmt.Errorf("%w: %w", ErrRecordRun, err)
+		}
 	}
 	if len(r.order) == 100 {
 		delete(r.runs, r.order[0])

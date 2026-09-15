@@ -4,9 +4,10 @@ A small local workflow runner, built with Go and React. Load a workflow,
 run its HTTP checks, and inspect the results in your browser.
 
 M0 is a working skeleton. Its steps execute sequentially, one workflow
-can run at a time, and the last 100 runs live in memory. Restarting the server
-clears execution history. Workflow definitions live in JSON files and are loaded
-at startup.
+can run at a time, and the last 100 runs are displayed from memory. Restarting the
+server clears that displayed history. Each run's initial snapshot is now saved
+in SQLite; step progress and completed results still use memory. Workflow
+definitions live in JSON files and are loaded at startup.
 
 ## Start with Docker
 
@@ -261,10 +262,19 @@ The [modernc.org/sqlite driver](https://pkg.go.dev/modernc.org/sqlite) supports 
 existing build with CGO disabled.
 
 The server now opens SQLite before starting HTTP and closes it after the runner
-stops. Database path or migration errors prevent startup. Run history still lives
-in memory; connecting the runner and history API to storage is the next step.
+stops. Database path or migration errors prevent startup. The runner saves a new
+run and its workflow snapshot before admitting it for execution. A failed save
+returns HTTP 500, starts no steps, and does not consume the runner's active slot.
+The save uses a five-second timeout tied to the runner, so ending an HTTP request
+does not cancel an accepted run. Tests can pass a nil recorder for an in-memory
+runner.
+
+This increment saves initial snapshots only: SQLite rows remain `running` with
+`pending` steps even after execution completes. Progress and final statuses still
+live in memory, and the history API still reads that memory. Saving updates and
+switching history reads to SQLite are the next separate changes.
 After review, the focused tests can be run with
-`go test -race ./cmd/server ./internal/store`; they use temporary directories.
+`go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
 Opening the database also applies schema version 1 from `internal/store/schema.go`.
 The `runs` table holds run metadata and a JSON copy of the workflow definition;
 `run_steps` holds ordered step results. Timestamps use Unix milliseconds. The
@@ -293,7 +303,8 @@ partial history.
 runs ordered by creation time newest first, then by run ID descending for ties.
 The list and its step results share one read transaction. An empty history
 returns an empty list; invalid limits or read errors return an error without
-partial results. Connecting storage to the runner and history API comes next.
+partial results. Run creation is connected to storage; execution updates and
+history API reads still need to be connected.
 
 ## M0 completion and next steps
 

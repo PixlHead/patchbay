@@ -44,7 +44,7 @@ func TestSequentialChecksAndSnapshots(t *testing.T) {
 	runner := New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		called = append(called, step.ID)
 		return workflow.HTTPResult{Healthy: false, Reason: "maintenance"}, nil
-	})
+	}, nil)
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
@@ -67,7 +67,7 @@ func TestSequentialChecksAndSnapshots(t *testing.T) {
 func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
 	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{}, errors.New("executor failed")
-	})
+	}, nil)
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
@@ -85,7 +85,7 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 		close(started)
 		<-ctx.Done()
 		return workflow.HTTPResult{}, ctx.Err()
-	})
+	}, nil)
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
@@ -118,7 +118,7 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
 	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
-	})
+	}, nil)
 	defer runner.Close()
 	bad := example()
 	bad.Steps = nil
