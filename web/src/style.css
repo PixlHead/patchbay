@@ -504,7 +504,8 @@ main {
   background: #e9f3fb;
 }
 .status-failed,
-.status-canceled {
+.status-canceled,
+.status-interrupted {
   color: #a14539;
   background: #fbece8;
 }

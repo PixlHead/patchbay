@@ -74,3 +74,47 @@ test('an old unfinished run does not disable starting another workflow', async (
   await expect(page.getByRole('alert')).toContainText('another workflow is running');
   await expect(start).toBeEnabled();
 });
+
+test('interrupted history preserves results and shows an unknown finish time', async ({ page }) => {
+  await page.route('**/api/runs', (route) =>
+    route.fulfill({
+      json: [
+        {
+          id: 'interrupted-run',
+          workflowId: 'browser-checks',
+          workflowName: 'Browser checks',
+          status: 'interrupted',
+          startedAt: '2025-01-02T12:00:00Z',
+          steps: [
+            {
+              id: 'completed',
+              name: 'Completed check',
+              status: 'succeeded',
+              output: {
+                healthy: true,
+                url: 'http://service.invalid/health',
+                expectedStatus: 200,
+                statusCode: 200,
+                durationMs: 42,
+                reason: 'Received expected HTTP 200',
+              },
+            },
+            { id: 'active', name: 'Unfinished check', status: 'interrupted' },
+            { id: 'pending', name: 'Unstarted check', status: 'skipped' },
+          ],
+        },
+      ],
+    }),
+  );
+  await page.goto('/');
+  const results = page.getByRole('region', { name: 'Run results' });
+  await expect(results.getByText('Interrupted', { exact: true })).toHaveCount(2);
+  await expect(results.getByText('Finish time unknown', { exact: true })).toBeVisible();
+  await expect(results.getByText('Received expected HTTP 200')).toBeVisible();
+  await expect(results.getByText('Healthy', { exact: true })).toBeVisible();
+  await expect(results.getByText('Skipped', { exact: true })).toBeVisible();
+  await expect(
+    results.getByText('Saved results are preserved; steps were not resumed.', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
+});

@@ -291,11 +291,19 @@ the database and can be fetched by ID. An empty list is `[]`, a missing ID retur
 Restarting with the same database preserves saved history. Native development
 uses `data/patchbay.db`; Docker uses its named volume, so those installations
 have separate histories. A workflow page shows runs matching its current ID.
-Recovery of interrupted runs is still to come: crashes, failed final saves, or
-records from the earlier initial-save-only version may leave a saved `running`
-status. Reading history does not resume those runs. The Run button relies on the
-server's current admission check rather than treating saved statuses as proof
-that an execution is active.
+Before creating the runner or accepting HTTP requests, startup calls
+`store.MarkUnfinishedRunsInterrupted(ctx, db)` with a five-second timeout.
+Saved `running` runs and their active steps become `interrupted`; pending steps
+become `skipped`. Completed results, errors, workflow snapshots, and timestamps
+are preserved. Missing finish times stay unknown, so the frontend shows
+**Interrupted** and **Finish time unknown** without inventing a duration.
+
+The cleanup is one transaction. Failure prevents startup; success logs the
+number of affected runs when nonzero. Repeating it leaves completed and already
+interrupted runs unchanged. This is startup-only cleanup for one server using
+the database, not a way to cancel active executors. No steps are automatically
+resumed or retried. The Run button relies on the server's current admission
+check rather than treating saved statuses as proof that an execution is active.
 After review, the focused tests can be run with
 `go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
 Opening the database also applies schema version 1 from `internal/store/schema.go`.

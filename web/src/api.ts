@@ -16,7 +16,7 @@ export type Workflow = {
 export type StepRun = {
   id: string;
   name: string;
-  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'skipped';
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted' | 'skipped';
   startedAt?: string;
   finishedAt?: string;
   error?: string;
@@ -34,7 +34,7 @@ export type Run = {
   id: string;
   workflowId: string;
   workflowName: string;
-  status: 'running' | 'succeeded' | 'failed' | 'canceled';
+  status: 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted';
   startedAt: string;
   finishedAt?: string;
   steps: StepRun[];

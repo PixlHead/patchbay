@@ -55,6 +55,17 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 		}
 	}()
 
+	// Reconcile saved history before creating a runner or accepting requests.
+	interruptionCtx, cancelInterruption := context.WithTimeout(ctx, 5*time.Second)
+	interrupted, err := store.MarkUnfinishedRunsInterrupted(interruptionCtx, db)
+	cancelInterruption()
+	if err != nil {
+		return fmt.Errorf("mark unfinished runs interrupted: %w", err)
+	}
+	if interrupted > 0 {
+		slog.Info("marked unfinished runs interrupted", "runs", interrupted)
+	}
+
 	httpNode := nodes.NewHTTP()
 	runner := engine.New(httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)

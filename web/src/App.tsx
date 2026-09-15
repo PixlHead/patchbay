@@ -13,6 +13,7 @@ const statusLabel: Record<string, string> = {
   succeeded: 'Completed',
   failed: 'Failed',
   canceled: 'Canceled',
+  interrupted: 'Interrupted',
   pending: 'Waiting',
   skipped: 'Skipped',
 };
@@ -348,7 +349,9 @@ function RunDetails({ run }: { run: Run }) {
         <span>
           {run.finishedAt
             ? `${Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())} ms total`
-            : 'No completion recorded yet'}
+            : run.status === 'interrupted'
+              ? 'Finish time unknown'
+              : 'No completion recorded yet'}
         </span>
         <span>
           {unhealthy > 0
@@ -362,7 +365,9 @@ function RunDetails({ run }: { run: Run }) {
         <StepResult key={step.id} step={step} />
       ))}
       <p className="result-help">
-        Completed means the checks finished. Each service has its own health result.
+        {run.status === 'interrupted'
+          ? 'Patchbay restarted before this run’s completion was recorded. Saved results are preserved; steps were not resumed.'
+          : 'Completed means the checks finished. Each service has its own health result.'}
       </p>
       <details className="definition">
         <summary>View execution JSON</summary>
