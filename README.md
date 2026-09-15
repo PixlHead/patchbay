@@ -5,8 +5,8 @@ run its HTTP checks, and inspect the results in your browser.
 
 M0 is a working skeleton. Its steps execute sequentially, one workflow
 can run at a time, and the last 100 runs are displayed from memory. Restarting the
-server clears that displayed history. Each run's initial snapshot is now saved
-in SQLite; step progress and completed results still use memory. Workflow
+server clears that displayed history. Run snapshots, step progress, and completed
+results are saved in SQLite, but the history API still reads memory. Workflow
 definitions live in JSON files and are loaded at startup.
 
 ## Start with Docker
@@ -266,13 +266,25 @@ stops. Database path or migration errors prevent startup. The runner saves a new
 run and its workflow snapshot before admitting it for execution. A failed save
 returns HTTP 500, starts no steps, and does not consume the runner's active slot.
 The save uses a five-second timeout tied to the runner, so ending an HTTP request
-does not cancel an accepted run. Tests can pass a nil recorder for an in-memory
-runner.
+does not cancel an accepted run. Tests can pass nil persistence callbacks for an
+in-memory runner.
 
-This increment saves initial snapshots only: SQLite rows remain `running` with
-`pending` steps even after execution completes. Progress and final statuses still
-live in memory, and the history API still reads that memory. Saving updates and
-switching history reads to SQLite are the next separate changes.
+The runner saves each step's start before executing it, then saves its result or
+error before moving on. A final update saves the run status and any skipped
+steps. Progress writes happen outside the history mutex and use five-second
+timeouts. Shutdown cancels execution, then allows up to five fresh seconds for
+the final save before closing SQLite. Compose allows 20 seconds for graceful
+shutdown, including database cleanup and HTTP shutdown.
+
+If a progress save fails, the runner logs the error with the run ID, stops later
+steps, and makes one final save attempt. Completed step outputs are preserved;
+steps that never executed are skipped. A failed final save is logged and leaves
+SQLite at its last successfully saved snapshot; memory keeps the latest result.
+External actions are never retried because a database write failed.
+
+The history API still reads memory, so earlier runs are not displayed after a
+restart yet. Switching those reads to SQLite is the next separate change.
+Recovery of runs interrupted by a crash is also still to come.
 After review, the focused tests can be run with
 `go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
 Opening the database also applies schema version 1 from `internal/store/schema.go`.
@@ -303,7 +315,7 @@ partial history.
 runs ordered by creation time newest first, then by run ID descending for ties.
 The list and its step results share one read transaction. An empty history
 returns an empty list; invalid limits or read errors return an error without
-partial results. Run creation is connected to storage; execution updates and
+partial results. Run creation and execution updates are connected to storage;
 history API reads still need to be connected.
 
 ## M0 completion and next steps

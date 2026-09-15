@@ -58,6 +58,8 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	httpNode := nodes.NewHTTP()
 	runner := engine.New(httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
+	}, func(ctx context.Context, run engine.Run) error {
+		return store.UpdateRun(ctx, db, run)
 	})
 	defer runner.Close()
 	server := &http.Server{
@@ -68,7 +70,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
-	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "memory", "database", dbPath)
+	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "memory", "database", dbPath)
 	select {
 	case err := <-errorsCh:
 		if !errors.Is(err, http.ErrServerClosed) {

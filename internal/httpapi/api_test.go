@@ -36,7 +36,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 		case <-ctx.Done():
 			return workflow.HTTPResult{}, ctx.Err()
 		}
-	}, nil)
+	}, nil, nil)
 	defer runner.Close()
 	server := httptest.NewServer(New(definitions, runner, t.TempDir()))
 	defer server.Close()
@@ -99,7 +99,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 		return workflow.HTTPResult{}, nil
 	}, func(context.Context, engine.Run, workflow.Definition) error {
 		return errors.New("storage unavailable")
-	})
+	}, nil)
 	defer runner.Close()
 	handler := New(testDefinitions(), runner, t.TempDir())
 	request := httptest.NewRequest(http.MethodPost, "/api/workflows/test-workflow/runs", nil)
@@ -117,7 +117,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 
 func TestAPIErrorResponses(t *testing.T) {
 	definitions := testDefinitions()
-	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil)
+	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
 	defer runner.Close()
 	handler := New(definitions, runner, t.TempDir())
 	tests := []struct {

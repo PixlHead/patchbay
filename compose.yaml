@@ -7,6 +7,7 @@ services:
     volumes:
       - ./workflows:/app/workflows:ro
       - data:/app/data
+    stop_grace_period: 20s
     read_only: true
     cap_drop: [ALL]
     healthcheck:

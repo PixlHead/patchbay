@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -47,6 +48,10 @@ type ExecuteStep func(context.Context, workflow.Step) (workflow.HTTPResult, erro
 // Implementations must respect context cancellation and save the snapshot atomically.
 type RecordNewRun func(context.Context, Run, workflow.Definition) error
 
+// UpdateSavedRun saves progress for an existing run. Like RecordNewRun,
+// implementations must respect cancellation and save the snapshot atomically.
+type UpdateSavedRun func(context.Context, Run) error
+
 type Runner struct {
 	mu     sync.Mutex
 	runs   map[string]Run
@@ -57,14 +62,18 @@ type Runner struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	execute      ExecuteStep
-	recordNewRun RecordNewRun
+	execute        ExecuteStep
+	recordNewRun   RecordNewRun
+	updateSavedRun UpdateSavedRun
 }
 
-// A nil recorder keeps the runner in memory, as used by the executor tests.
-func New(execute ExecuteStep, recordNewRun RecordNewRun) *Runner {
+// Nil persistence callbacks keep the runner in memory for executor tests.
+func New(execute ExecuteStep, recordNewRun RecordNewRun, updateSavedRun UpdateSavedRun) *Runner {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runner{runs: make(map[string]Run), ctx: ctx, cancel: cancel, execute: execute, recordNewRun: recordNewRun}
+	return &Runner{
+		runs: make(map[string]Run), ctx: ctx, cancel: cancel,
+		execute: execute, recordNewRun: recordNewRun, updateSavedRun: updateSavedRun,
+	}
 }
 
 func (r *Runner) Start(definition workflow.Definition) (Run, error) {
@@ -136,23 +145,31 @@ func (r *Runner) Close() {
 
 func (r *Runner) run(id string, definition workflow.Definition) {
 	defer r.wg.Done()
+	// This goroutine owns its working copy; readers only see published snapshots.
+	run, _ := r.Get(id)
 	status := "succeeded"
 	for i, step := range definition.Steps {
 		if r.ctx.Err() != nil {
 			status = "canceled"
 			break
 		}
+		stepRun := &run.Steps[i]
 		started := time.Now().UTC()
-		r.mu.Lock()
-		r.runs[id].Steps[i].Status = "running"
-		r.runs[id].Steps[i].StartedAt = &started
-		r.mu.Unlock()
+		stepRun.Status, stepRun.StartedAt = "running", &started
+		if err := r.saveRunUpdate(r.ctx, run); err != nil || r.ctx.Err() != nil {
+			status = "failed"
+			if r.ctx.Err() != nil {
+				status = "canceled"
+			}
+			// The executor never started; finalization will mark this step skipped.
+			stepRun.Status, stepRun.StartedAt = "pending", nil
+			break
+		}
+		r.publishRun(run)
 
-		// Network work happens outside the lock; API reads can proceed.
+		// Neither external work nor database writes hold the history mutex.
 		output, err := r.execute(r.ctx, step)
 		finished := time.Now().UTC()
-		r.mu.Lock()
-		stepRun := &r.runs[id].Steps[i]
 		stepRun.FinishedAt = &finished
 		if err != nil {
 			status = "failed"
@@ -163,14 +180,24 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 		} else {
 			stepRun.Status, stepRun.Output = "succeeded", &output
 		}
-		r.mu.Unlock()
+		if r.ctx.Err() != nil {
+			// Finalization saves these results with a fresh cleanup context.
+			status = "canceled"
+			break
+		}
+		if err := r.saveRunUpdate(r.ctx, run); err != nil {
+			status = "failed"
+			if r.ctx.Err() != nil {
+				status = "canceled"
+			}
+			// Preserve completed outputs, but do not execute any more steps.
+			break
+		}
+		r.publishRun(run)
 		if err != nil {
 			break
 		}
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	run := r.runs[id]
 	finished := time.Now().UTC()
 	run.Status, run.FinishedAt = status, &finished
 	for i := range run.Steps {
@@ -178,8 +205,32 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 			run.Steps[i].Status = "skipped"
 		}
 	}
-	r.runs[id] = run
+	// One final attempt also runs after a progress-save failure or shutdown.
+	// The helper logs failures; memory retains the actual execution results.
+	_ = r.saveRunUpdate(context.WithoutCancel(r.ctx), run)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runs[id] = copyRun(run)
 	r.active = false
+}
+
+func (r *Runner) saveRunUpdate(ctx context.Context, run Run) error {
+	if r.updateSavedRun == nil {
+		return nil
+	}
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err := r.updateSavedRun(saveCtx, copyRun(run))
+	if err != nil && ctx.Err() == nil {
+		slog.Error("could not save run update", "run_id", run.ID, "status", run.Status, "error", err)
+	}
+	return err
+}
+
+func (r *Runner) publishRun(run Run) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runs[run.ID] = copyRun(run)
 }
 
 // Return snapshots so JSON encoding never races with the execution goroutine.

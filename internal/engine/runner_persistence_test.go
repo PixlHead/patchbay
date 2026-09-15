@@ -22,7 +22,7 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 		records++
 		saved, savedDefinition = run, definition
 		return nil
-	})
+	}, nil)
 	defer runner.Close()
 	definition := example()
 	started, err := runner.Start(definition)
@@ -53,7 +53,7 @@ func TestStartRejectsFailedSaveAndAllowsRetry(t *testing.T) {
 			return storageError
 		}
 		return nil
-	})
+	}, nil)
 	defer runner.Close()
 	rejected, err := runner.Start(example())
 	if !errors.Is(err, ErrRecordRun) || !errors.Is(err, storageError) || !reflect.DeepEqual(rejected, Run{}) {
