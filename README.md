@@ -3,11 +3,11 @@
 A small local workflow runner, built with Go and React. Load a workflow,
 run its HTTP checks, and inspect the results in your browser.
 
-The M0 skeleton is gaining M1 persistence. Its steps execute sequentially and
-one workflow can run at a time. Run snapshots, step progress, and completed
-results are saved in SQLite. The frontend displays the latest 100 saved runs
-across workflows, including earlier server sessions. Workflow definitions live
-in JSON files and are loaded at startup.
+The M0 skeleton is gaining M1 persistence and concurrency. Steps within a run
+execute sequentially; by default, two different workflows can run at once.
+Run snapshots, step progress, and completed results are saved in SQLite. The
+frontend displays the latest 100 saved runs across workflows, including earlier
+server sessions. Workflow definitions live in JSON files and are loaded at startup.
 
 ## Start with Docker
 
@@ -78,6 +78,35 @@ Use `-db` to choose another file, for example:
 ```sh
 go run ./cmd/server -db ./data/development.db
 ```
+
+## Concurrent workflow runs
+
+`-max-active-runs` sets the maximum number of active workflows (default 2).
+It must be at least 1; use 1 to keep execution limited to one workflow at a time.
+For native development:
+
+```sh
+go run ./cmd/server -max-active-runs 4
+```
+
+For Docker Compose, set the app service's command when changing the limit:
+
+```yaml
+command: ["/app/patchbay", "-addr", "0.0.0.0:8080", "-max-active-runs", "4"]
+```
+
+Different workflows can execute concurrently. Each workflow still runs its steps
+in order, and the same workflow cannot have two active runs. Capacity and overlap
+checks happen together under the runner's mutex. A slot is released after the
+final save attempt, including failed or canceled runs. Failed initial saves do
+not consume a slot. Execution and progress saves run outside that mutex; initial
+run creation stays serialized. Node executors and update callbacks must support
+concurrent calls from different runs. SQLite still serializes database access.
+
+There is no pending queue yet: rejected starts return an error and are not saved
+as executions. Shutdown cancels all active runs and waits for their final saves.
+The runner retains active runs while trimming older completed memory snapshots;
+the history API continues to read the latest 100 saved runs from SQLite.
 
 ## Explore workflow canvases
 
@@ -216,9 +245,11 @@ curl -X POST -H 'Content-Type: application/json' \
   http://127.0.0.1:8080/api/workflows/patchbay-health/runs
 ```
 
-Use the returned ID to poll `GET /api/runs/{id}`. A second start while a workflow
-is active returns `409`. A missing workflow or run returns `404`. A missing
-content type returns `415`; an unexpected request body returns `400`.
+Use the returned ID to poll `GET /api/runs/{id}`. Starting the same workflow
+while it is active returns `409`. Starting a different workflow when the active
+limit is reached returns `429`, with the configured limit in the error message.
+A missing workflow or run returns `404`. A missing content type returns `415`;
+an unexpected request body returns `400`.
 The run continues after the request finishes or the browser closes.
 
 ## Verify changes
@@ -231,10 +262,10 @@ make fmt               # gofmt and Prettier
 
 The Go tests use temporary local HTTP servers and controlled executors. They
 cover validation, timeouts, unreachable services, redirects, cancellation,
-sequential ordering, execution failure, run admission, history bounds, snapshots,
+sequential ordering, concurrent admission, execution failure, history bounds, snapshots,
 and the API lifecycle. They do not contact outside services.
 
-For the two browser tests, install Chromium once and run:
+For the browser tests, install Chromium once and run:
 
 ```sh
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" npm --prefix web exec -- playwright install chromium

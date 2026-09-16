@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrBusy      = errors.New("another workflow is running; wait for it to finish")
-	ErrClosed    = errors.New("the runner is shutting down")
-	ErrRecordRun = errors.New("could not save run")
+	ErrWorkflowRunning = errors.New("this workflow is already running; wait for it to finish")
+	ErrCapacity        = errors.New("maximum active workflows reached; wait for a run to finish")
+	ErrClosed          = errors.New("the runner is shutting down")
+	ErrRecordRun       = errors.New("could not save run")
 )
 
 type StepRun struct {
@@ -41,7 +42,8 @@ type Run struct {
 }
 
 // ExecuteStep is a function dependency, letting engine tests use a controlled
-// executor without a network server or a plugin framework.
+// executor without a network server or a plugin framework. Implementations must
+// support concurrent calls from different runs.
 type ExecuteStep func(context.Context, workflow.Step) (workflow.HTTPResult, error)
 
 // RecordNewRun saves the initial run and workflow snapshot before execution.
@@ -50,30 +52,37 @@ type RecordNewRun func(context.Context, Run, workflow.Definition) error
 
 // UpdateSavedRun saves progress for an existing run. Like RecordNewRun,
 // implementations must respect cancellation and save the snapshot atomically.
+// Updates for different runs can happen concurrently.
 type UpdateSavedRun func(context.Context, Run) error
 
 type Runner struct {
-	mu     sync.Mutex
-	runs   map[string]Run
-	order  []string
-	active bool
-	closed bool
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu              sync.Mutex
+	runs            map[string]Run
+	order           []string
+	activeWorkflows map[string]struct{}
+	maxActiveRuns   int
+	closed          bool
+	ctx             context.Context
+	cancel          context.CancelFunc
+	wg              sync.WaitGroup
 
 	execute        ExecuteStep
 	recordNewRun   RecordNewRun
 	updateSavedRun UpdateSavedRun
 }
 
+// New requires a positive limit for simultaneous runs.
 // Nil persistence callbacks keep the runner in memory for executor tests.
-func New(execute ExecuteStep, recordNewRun RecordNewRun, updateSavedRun UpdateSavedRun) *Runner {
+func New(maxActiveRuns int, execute ExecuteStep, recordNewRun RecordNewRun, updateSavedRun UpdateSavedRun) (*Runner, error) {
+	if maxActiveRuns < 1 {
+		return nil, fmt.Errorf("max active runs must be at least 1")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Runner{
 		runs: make(map[string]Run), ctx: ctx, cancel: cancel,
+		activeWorkflows: make(map[string]struct{}), maxActiveRuns: maxActiveRuns,
 		execute: execute, recordNewRun: recordNewRun, updateSavedRun: updateSavedRun,
-	}
+	}, nil
 }
 
 func (r *Runner) Start(definition workflow.Definition) (Run, error) {
@@ -86,8 +95,11 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 	if r.closed {
 		return Run{}, ErrClosed
 	}
-	if r.active {
-		return Run{}, ErrBusy
+	if _, exists := r.activeWorkflows[definition.ID]; exists {
+		return Run{}, ErrWorkflowRunning
+	}
+	if len(r.activeWorkflows) >= r.maxActiveRuns {
+		return Run{}, fmt.Errorf("%w (limit %d)", ErrCapacity, r.maxActiveRuns)
 	}
 	run := Run{
 		ID: rand.Text(), WorkflowID: definition.ID, WorkflowName: definition.Name,
@@ -106,13 +118,10 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 			return Run{}, fmt.Errorf("%w: %w", ErrRecordRun, err)
 		}
 	}
-	if len(r.order) == 100 {
-		delete(r.runs, r.order[0])
-		r.order = r.order[1:]
-	}
 	r.order = append(r.order, run.ID)
 	r.runs[run.ID] = run
-	r.active = true
+	r.activeWorkflows[definition.ID] = struct{}{}
+	r.trimHistoryLocked()
 	r.wg.Add(1)
 	go r.run(run.ID, definition)
 	return copyRun(run), nil
@@ -211,7 +220,8 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.runs[id] = copyRun(run)
-	r.active = false
+	delete(r.activeWorkflows, definition.ID)
+	r.trimHistoryLocked()
 }
 
 func (r *Runner) saveRunUpdate(ctx context.Context, run Run) error {
@@ -231,6 +241,18 @@ func (r *Runner) publishRun(run Run) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.runs[run.ID] = copyRun(run)
+}
+
+// Caller holds mu. Keep active runs even when newer runs fill the history limit.
+func (r *Runner) trimHistoryLocked() {
+	for len(r.order) > 100 {
+		i := slices.IndexFunc(r.order, func(id string) bool { return r.runs[id].Status != "running" })
+		if i < 0 {
+			return // More than 100 active runs: trim again when one finishes.
+		}
+		delete(r.runs, r.order[i])
+		r.order = slices.Delete(r.order, i, i+1)
+	}
 }
 
 // Return snapshots so JSON encoding never races with the execution goroutine.

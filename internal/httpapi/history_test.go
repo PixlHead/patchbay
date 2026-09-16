@@ -32,7 +32,10 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 	db = openTestDB(t, path)
 	// An empty runner represents the new process; neither run exists in memory.
 	// This test only sends GET requests, so it needs no executor.
-	runner := engine.New(nil, nil, nil)
+	runner, err := engine.New(2, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	handler := New(testDefinitions(), runner, db, t.TempDir())
 	response := httptest.NewRecorder()
@@ -60,7 +63,10 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 
 func TestEmptyAndMissingHistory(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
-	runner := engine.New(nil, nil, nil)
+	runner, err := engine.New(2, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	handler := New(testDefinitions(), runner, db, t.TempDir())
 	for _, test := range []struct {
@@ -94,7 +100,10 @@ func TestHistoryReadFailuresReturnServerErrors(t *testing.T) {
 			} else if _, err := db.ExecContext(context.Background(), "UPDATE run_steps SET output_json = ?", "{"); err != nil {
 				t.Fatal(err)
 			}
-			runner := engine.New(nil, nil, nil)
+			runner, err := engine.New(2, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer runner.Close()
 			handler := New(testDefinitions(), runner, db, t.TempDir())
 			for path, message := range map[string]string{

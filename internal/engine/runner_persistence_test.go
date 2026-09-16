@@ -13,7 +13,7 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 	var saved Run
 	var savedDefinition workflow.Definition
 	records := 0
-	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		if saved.ID == "" {
 			return workflow.HTTPResult{}, errors.New("step started before the run was saved")
 		}
@@ -23,6 +23,9 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 		saved, savedDefinition = run, definition
 		return nil
 	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	definition := example()
 	started, err := runner.Start(definition)
@@ -44,7 +47,7 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 func TestStartRejectsFailedSaveAndAllowsRetry(t *testing.T) {
 	storageError := errors.New("storage unavailable")
 	attempts, executed := 0, 0
-	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		executed++
 		return workflow.HTTPResult{Healthy: true}, nil
 	}, func(context.Context, Run, workflow.Definition) error {
@@ -54,6 +57,9 @@ func TestStartRejectsFailedSaveAndAllowsRetry(t *testing.T) {
 		}
 		return nil
 	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	rejected, err := runner.Start(example())
 	if !errors.Is(err, ErrRecordRun) || !errors.Is(err, storageError) || !reflect.DeepEqual(rejected, Run{}) {

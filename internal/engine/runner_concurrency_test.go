@@ -1,0 +1,256 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"patchbay/internal/workflow"
+)
+
+func TestNewRejectsInvalidActiveRunLimits(t *testing.T) {
+	for _, limit := range []int{0, -1} {
+		runner, err := New(limit, nil, nil, nil)
+		if runner != nil {
+			runner.Close()
+		}
+		if err == nil || runner != nil {
+			t.Fatalf("accepted invalid limit %d: %v", limit, err)
+		}
+	}
+}
+
+func TestDifferentWorkflowsOverlapButTheirStepsStaySequential(t *testing.T) {
+	releaseA, releaseB := make(chan struct{}), make(chan struct{})
+	started := make(chan string, 10)
+	blocked := map[string]<-chan struct{}{"a-one": releaseA, "b-one": releaseB}
+	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+		started <- step.ID
+		if release, ok := blocked[step.ID]; ok {
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return workflow.HTTPResult{}, ctx.Err()
+			}
+		}
+		return workflow.HTTPResult{Healthy: true, Reason: step.ID}, nil
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	var runs []Run
+	for _, id := range []string{"a", "b"} {
+		run, err := runner.Start(concurrentDefinition(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs = append(runs, run)
+	}
+	seen := make(map[string]bool)
+	for range 2 {
+		select {
+		case step := <-started:
+			seen[step] = true
+		case <-time.After(2 * time.Second):
+			t.Fatal("both workflows must start before either first step is released")
+		}
+	}
+	if !seen["a-one"] || !seen["b-one"] {
+		t.Fatalf("later steps ran before their preceding steps finished: %v", seen)
+	}
+	for _, run := range runs {
+		current, _ := runner.Get(run.ID)
+		if current.Steps[1].Status != "pending" {
+			t.Fatalf("second step started too early: %+v", current)
+		}
+	}
+	close(releaseA)
+	finished := awaitRun(t, runner, runs[0].ID)
+	if finished.Status != "succeeded" || finished.Steps[1].StartedAt.Before(*finished.Steps[0].FinishedAt) {
+		t.Fatalf("steps did not finish in sequence: %+v", finished)
+	}
+	// The finished workflow releases its own overlap guard and capacity slot.
+	restarted, err := runner.Start(concurrentDefinition("a"))
+	if err != nil {
+		t.Fatalf("could not reuse the released slot while b remains active: %v", err)
+	}
+	awaitRun(t, runner, restarted.ID)
+	if current, _ := runner.Get(runs[1].ID); current.Status != "running" {
+		t.Fatal("finishing a different workflow stopped b")
+	}
+	close(releaseB)
+	finishedB := awaitRun(t, runner, runs[1].ID)
+	for _, run := range []Run{finished, finishedB} {
+		for _, step := range run.Steps {
+			if step.Output == nil || step.Output.Reason != step.ID {
+				t.Fatalf("outputs crossed between concurrent runs: %+v", run)
+			}
+		}
+	}
+}
+
+func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
+	for _, duplicate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("same-workflow=%t", duplicate), func(t *testing.T) {
+			var recorded atomic.Int32
+			started := make(chan struct{}, 24)
+			runner, err := New(3, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+				started <- struct{}{}
+				<-ctx.Done()
+				return workflow.HTTPResult{}, ctx.Err()
+			}, func(context.Context, Run, workflow.Definition) error {
+				recorded.Add(1)
+				return nil
+			}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer runner.Close()
+			type outcome struct {
+				run Run
+				err error
+			}
+			results := make(chan outcome, 24)
+			begin := make(chan struct{})
+			for i := range 24 {
+				go func() {
+					<-begin
+					id := fmt.Sprintf("workflow-%d", i)
+					if duplicate {
+						id = "same"
+					}
+					run, err := runner.Start(concurrentDefinition(id))
+					runner.List() // Exercise snapshots during concurrent admission.
+					results <- outcome{run, err}
+				}()
+			}
+			close(begin)
+			wantCount, wantError := 3, ErrCapacity
+			if duplicate {
+				wantCount, wantError = 1, ErrWorkflowRunning
+			}
+			var accepted []Run
+			for range 24 {
+				select {
+				case result := <-results:
+					if result.err == nil {
+						accepted = append(accepted, result.run)
+					} else if !errors.Is(result.err, wantError) || result.run.ID != "" {
+						t.Fatalf("unexpected rejection: %+v, %v", result.run, result.err)
+					}
+				case <-time.After(2 * time.Second):
+					t.Fatal("concurrent admission did not finish")
+				}
+			}
+			if len(accepted) != wantCount || int(recorded.Load()) != wantCount || len(runner.List()) != wantCount {
+				t.Fatalf("want %d accepted and saved runs, got %d accepted, %d saves", wantCount, len(accepted), recorded.Load())
+			}
+			for range wantCount {
+				select {
+				case <-started:
+				case <-time.After(2 * time.Second):
+					t.Fatal("an accepted workflow did not begin execution")
+				}
+			}
+			runner.Close()
+			for _, run := range accepted {
+				finished, _ := runner.Get(run.ID)
+				if finished.Status != "canceled" || finished.Steps[0].Status != "canceled" || finished.Steps[1].Status != "skipped" {
+					t.Fatalf("shutdown did not finish every active run: %+v", finished)
+				}
+			}
+		})
+	}
+}
+
+func TestActiveRunSurvivesMemoryHistoryTrimming(t *testing.T) {
+	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+		if step.ID == "slow-one" {
+			<-ctx.Done()
+			return workflow.HTTPResult{}, ctx.Err()
+		}
+		return workflow.HTTPResult{Healthy: true}, nil
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	slow, err := runner.Start(concurrentDefinition("slow"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 101 {
+		fast, err := runner.Start(concurrentDefinition("fast"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		awaitRun(t, runner, fast.ID)
+	}
+	if run, ok := runner.Get(slow.ID); !ok || run.Status != "running" || len(runner.List()) != 100 {
+		t.Fatal("history trimming discarded the active run or exceeded the limit")
+	}
+}
+
+func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
+	finalStarted := make(chan struct{}, 2)
+	release := make(chan struct{})
+	runner, err := New(1, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+		return workflow.HTTPResult{Healthy: true}, nil
+	}, nil, func(ctx context.Context, run Run) error {
+		if run.Status == "running" {
+			return nil
+		}
+		finalStarted <- struct{}{}
+		select {
+		case <-release:
+			return errors.New("final save unavailable")
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	// Release a blocked final save even if an assertion fails.
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	run, err := runner.Start(concurrentDefinition("a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finalStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("final save did not start")
+	}
+	if _, err := runner.Start(concurrentDefinition("a")); !errors.Is(err, ErrWorkflowRunning) {
+		t.Fatalf("overlap was allowed during the final save: %v", err)
+	}
+	if _, err := runner.Start(concurrentDefinition("b")); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("capacity was released during the final save: %v", err)
+	}
+	close(release)
+	awaitRun(t, runner, run.ID)
+	if _, err := runner.Start(concurrentDefinition("a")); err != nil {
+		t.Fatalf("failed final save leaked the slot or overlap guard: %v", err)
+	}
+}
+
+func concurrentDefinition(id string) workflow.Definition {
+	definition := example()
+	definition.ID = id
+	for i := range definition.Steps {
+		definition.Steps[i].ID = id + "-" + definition.Steps[i].ID
+	}
+	return definition
+}

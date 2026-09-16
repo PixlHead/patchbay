@@ -18,7 +18,7 @@ func TestRunSavesProgressAndCompletion(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			var updates []Run
-			runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 				if executionFails {
 					return workflow.HTTPResult{}, errors.New("connection refused")
 				}
@@ -27,6 +27,9 @@ func TestRunSavesProgressAndCompletion(t *testing.T) {
 				updates = append(updates, run)
 				return nil
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer runner.Close()
 			started, err := runner.Start(example())
 			if err != nil {
@@ -90,7 +93,7 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			writes, executed := 0, 0
 			var lastAttempt Run
-			runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 				executed++
 				return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
 			}, nil, func(_ context.Context, run Run) error {
@@ -101,6 +104,9 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 				}
 				return nil
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer runner.Close()
 			started, err := runner.Start(example())
 			if err != nil {
@@ -111,7 +117,7 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 			if writes != test.wantWrites || executed != test.wantExecuted || finished.Status != test.wantStatus {
 				t.Fatalf("got %d saves, %d executions, status %s", writes, executed, finished.Status)
 			}
-			if !reflect.DeepEqual(lastAttempt, finished) || finished.FinishedAt == nil || runner.active {
+			if !reflect.DeepEqual(lastAttempt, finished) || finished.FinishedAt == nil || len(runner.activeWorkflows) != 0 {
 				t.Fatal("final save was not attempted or the active slot was not released")
 			}
 			for i, step := range finished.Steps {
@@ -135,7 +141,7 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 			releaseFinal := make(chan struct{}, 1)
 			var saved Run
 			executed := 0
-			runner := New(func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
 				executed++
 				close(begun)
 				<-ctx.Done()
@@ -161,6 +167,9 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 					return ctx.Err()
 				}
 			})
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer runner.Close()
 			defer close(releaseFinal)
 			started, err := runner.Start(example())

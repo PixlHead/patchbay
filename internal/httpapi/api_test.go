@@ -33,7 +33,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
 	release := make(chan struct{})
-	runner := engine.New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		select {
 		case <-release:
 			return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
@@ -45,6 +45,9 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	}, func(ctx context.Context, run engine.Run) error {
 		return store.UpdateRun(ctx, db, run)
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	server := httptest.NewServer(New(definitions, runner, db, t.TempDir()))
 	defer server.Close()
@@ -103,12 +106,15 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 func TestRunSaveFailureReturnsServerError(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	executed := false
-	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		executed = true
 		return workflow.HTTPResult{}, nil
 	}, func(context.Context, engine.Run, workflow.Definition) error {
 		return errors.New("storage unavailable")
 	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	handler := New(testDefinitions(), runner, db, t.TempDir())
 	request := httptest.NewRequest(http.MethodPost, "/api/workflows/test-workflow/runs", nil)
@@ -127,7 +133,10 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 func TestAPIErrorResponses(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
-	runner := engine.New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
+	runner, err := engine.New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	handler := New(definitions, runner, db, t.TempDir())
 	tests := []struct {
@@ -167,4 +176,70 @@ func openTestDB(t *testing.T, path string) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
+	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
+	started := make(chan struct{}, 4)
+	runner, err := engine.New(2, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return workflow.HTTPResult{}, ctx.Err()
+	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+		return store.CreateRun(ctx, db, run, definition)
+	}, func(ctx context.Context, run engine.Run) error {
+		return store.UpdateRun(ctx, db, run)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	var definitions []workflow.Definition
+	for _, id := range []string{"a", "b", "c"} {
+		definition := testDefinitions()[0]
+		definition.ID = id
+		definitions = append(definitions, definition)
+	}
+	handler := New(definitions, runner, db, t.TempDir())
+	for _, test := range []struct {
+		id      string
+		status  int
+		message string
+	}{
+		{"a", http.StatusAccepted, ""},
+		{"b", http.StatusAccepted, ""},
+		{"a", http.StatusConflict, "this workflow is already running"},
+		{"c", http.StatusTooManyRequests, "limit 2"},
+	} {
+		request := httptest.NewRequest(http.MethodPost, "/api/workflows/"+test.id+"/runs", nil)
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != test.status || !strings.Contains(response.Body.String(), test.message) {
+			t.Fatalf("start %s: got %d %s", test.id, response.Code, response.Body.String())
+		}
+		if (response.Header().Get("Location") != "") != (test.status == http.StatusAccepted) {
+			t.Fatal("only accepted runs should have a Location header")
+		}
+	}
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("both workflows must execute concurrently")
+		}
+	}
+	runner.Close()
+	saved, err := store.ListRuns(context.Background(), db, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 2 {
+		t.Fatalf("rejected starts were saved or accepted runs disappeared: %+v", saved)
+	}
+	for _, run := range saved {
+		if run.Status != "canceled" || run.FinishedAt == nil || len(run.Steps) != 1 || run.Steps[0].Status != "canceled" || run.Steps[0].FinishedAt == nil {
+			t.Fatalf("Close returned without persisting cancellation: %+v", run)
+		}
+	}
 }

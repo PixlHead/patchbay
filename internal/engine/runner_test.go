@@ -41,10 +41,13 @@ func awaitRun(t *testing.T, runner *Runner, id string) Run {
 
 func TestSequentialChecksAndSnapshots(t *testing.T) {
 	var called []string
-	runner := New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		called = append(called, step.ID)
 		return workflow.HTTPResult{Healthy: false, Reason: "maintenance"}, nil
 	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
@@ -65,9 +68,12 @@ func TestSequentialChecksAndSnapshots(t *testing.T) {
 }
 
 func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
-	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{}, errors.New("executor failed")
 	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
@@ -81,18 +87,21 @@ func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
 
 func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 	started := make(chan struct{})
-	runner := New(func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		close(started)
 		<-ctx.Done()
 		return workflow.HTTPResult{}, ctx.Err()
 	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	run, err := runner.Start(example())
 	if err != nil {
 		t.Fatal(err)
 	}
 	<-started
-	if _, err := runner.Start(example()); !errors.Is(err, ErrBusy) {
+	if _, err := runner.Start(example()); !errors.Is(err, ErrWorkflowRunning) {
 		t.Fatalf("expected busy, got %v", err)
 	}
 	var readers sync.WaitGroup
@@ -116,9 +125,12 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 }
 
 func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
-	runner := New(func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
 	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer runner.Close()
 	bad := example()
 	bad.Steps = nil

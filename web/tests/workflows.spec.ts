@@ -63,7 +63,7 @@ test('an old unfinished run does not disable starting another workflow', async (
   await page.route('**/api/workflows/browser-checks/runs', (route) =>
     route.fulfill({
       status: 409,
-      json: { error: 'another workflow is running; wait for it to finish' },
+      json: { error: 'this workflow is already running; wait for it to finish' },
     }),
   );
   await page.goto('/');
@@ -71,7 +71,7 @@ test('an old unfinished run does not disable starting another workflow', async (
   const start = page.getByRole('button', { name: 'Run workflow', exact: true });
   await expect(start).toBeEnabled();
   await start.click();
-  await expect(page.getByRole('alert')).toContainText('another workflow is running');
+  await expect(page.getByRole('alert')).toContainText('this workflow is already running');
   await expect(start).toBeEnabled();
 });
 

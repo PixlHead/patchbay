@@ -25,18 +25,22 @@ func main() {
 	directory := flag.String("workflows", "workflows", "directory containing workflow JSON files")
 	webDir := flag.String("web", "web/dist", "built frontend directory")
 	dbPath := flag.String("db", "data/patchbay.db", "SQLite database file")
+	maxActiveRuns := flag.Int("max-active-runs", 2, "maximum concurrent workflow runs (at least 1)")
 	flag.Parse()
 
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := runServer(stop, *addr, *directory, *webDir, *dbPath); err != nil {
+	if err := runServer(stop, *addr, *directory, *webDir, *dbPath, *maxActiveRuns); err != nil {
 		slog.Error("patchbay failed", "error", err)
 		os.Exit(1)
 	}
 }
 
 // Returning errors lets deferred cleanup finish before main exits the process.
-func runServer(ctx context.Context, addr, directory, webDir, dbPath string) error {
+func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxActiveRuns int) error {
+	if maxActiveRuns < 1 {
+		return fmt.Errorf("max-active-runs must be at least 1")
+	}
 	definitions, err := workflow.Load(directory)
 	if err != nil {
 		return fmt.Errorf("invalid workflow configuration: %w", err)
@@ -67,11 +71,14 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	}
 
 	httpNode := nodes.NewHTTP()
-	runner := engine.New(httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+	runner, err := engine.New(maxActiveRuns, httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
 	}, func(ctx context.Context, run engine.Run) error {
 		return store.UpdateRun(ctx, db, run)
 	})
+	if err != nil {
+		return fmt.Errorf("create runner: %w", err)
+	}
 	defer runner.Close()
 	server := &http.Server{
 		Addr: addr, Handler: httpapi.New(definitions, runner, db, webDir),
@@ -81,7 +88,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string) erro
 	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
-	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath)
+	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath, "max_active_runs", maxActiveRuns)
 	select {
 	case err := <-errorsCh:
 		if !errors.Is(err, http.ErrServerClosed) {
