@@ -44,7 +44,7 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 			run, err := runner.Start(definition)
 			if err != nil {
 				code := http.StatusBadRequest
-				if errors.Is(err, engine.ErrWorkflowRunning) {
+				if errors.Is(err, engine.ErrWorkflowBusy) {
 					code = http.StatusConflict
 				} else if errors.Is(err, engine.ErrCapacity) {
 					code = http.StatusTooManyRequests

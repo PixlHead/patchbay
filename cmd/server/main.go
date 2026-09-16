@@ -26,20 +26,24 @@ func main() {
 	webDir := flag.String("web", "web/dist", "built frontend directory")
 	dbPath := flag.String("db", "data/patchbay.db", "SQLite database file")
 	maxActiveRuns := flag.Int("max-active-runs", 2, "maximum concurrent workflow runs (at least 1)")
+	maxQueuedRuns := flag.Int("max-queued-runs", 10, "maximum waiting workflow runs (0 disables queuing)")
 	flag.Parse()
 
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := runServer(stop, *addr, *directory, *webDir, *dbPath, *maxActiveRuns); err != nil {
+	if err := runServer(stop, *addr, *directory, *webDir, *dbPath, *maxActiveRuns, *maxQueuedRuns); err != nil {
 		slog.Error("patchbay failed", "error", err)
 		os.Exit(1)
 	}
 }
 
 // Returning errors lets deferred cleanup finish before main exits the process.
-func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxActiveRuns int) error {
+func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxActiveRuns, maxQueuedRuns int) error {
 	if maxActiveRuns < 1 {
 		return fmt.Errorf("max-active-runs must be at least 1")
+	}
+	if maxQueuedRuns < 0 {
+		return fmt.Errorf("max-queued-runs must be at least 0")
 	}
 	definitions, err := workflow.Load(directory)
 	if err != nil {
@@ -71,7 +75,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 	}
 
 	httpNode := nodes.NewHTTP()
-	runner, err := engine.New(maxActiveRuns, httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+	runner, err := engine.New(maxActiveRuns, maxQueuedRuns, httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
 	}, func(ctx context.Context, run engine.Run) error {
 		return store.UpdateRun(ctx, db, run)
@@ -88,7 +92,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
-	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath, "max_active_runs", maxActiveRuns)
+	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath, "max_active_runs", maxActiveRuns, "max_queued_runs", maxQueuedRuns)
 	select {
 	case err := <-errorsCh:
 		if !errors.Is(err, http.ErrServerClosed) {

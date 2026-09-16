@@ -32,16 +32,17 @@ func assertStoredRun(t *testing.T, db *sql.DB, definition workflow.Definition, r
 	t.Helper()
 	ctx := context.Background()
 	var workflowID, name, status, snapshot string
-	var created, started int64
-	var finished sql.NullInt64
+	var created int64
+	var started, finished sql.NullInt64
 	if err := db.QueryRowContext(ctx, `SELECT workflow_id, workflow_name, status,
         definition_json, created_at, started_at, finished_at FROM runs WHERE id = ?`, run.ID).
 		Scan(&workflowID, &name, &status, &snapshot, &created, &started, &finished); err != nil {
 		t.Fatal(err)
 	}
 	if workflowID != run.WorkflowID || name != run.WorkflowName || status != run.Status ||
-		created != run.StartedAt.UnixMilli() || started != created {
-		t.Fatalf("unexpected run metadata: %s %s %s %d %d", workflowID, name, status, created, started)
+		created != run.CreatedAt.UnixMilli() || started.Valid != !run.StartedAt.IsZero() ||
+		(started.Valid && started.Int64 != run.StartedAt.UnixMilli()) {
+		t.Fatalf("unexpected run metadata: %s %s %s %d %v", workflowID, name, status, created, started)
 	}
 	if finished.Valid != (run.FinishedAt != nil) ||
 		(finished.Valid && finished.Int64 != run.FinishedAt.UnixMilli()) {
@@ -151,7 +152,7 @@ func runFixture() (workflow.Definition, engine.Run) {
 	}
 	run := engine.Run{
 		ID: "run-1", WorkflowID: definition.ID, WorkflowName: definition.Name,
-		Status: "failed", StartedAt: started, FinishedAt: &finished,
+		Status: "failed", CreatedAt: started, StartedAt: started, FinishedAt: &finished,
 		Steps: []engine.StepRun{
 			{ID: "healthy", Name: "Healthy service", Status: "succeeded", StartedAt: &started, FinishedAt: &finished,
 				Output: &workflow.HTTPResult{Healthy: true, URL: config.URL, ExpectedStatus: 200, StatusCode: 200, DurationMS: 42, Reason: "expected status"}},

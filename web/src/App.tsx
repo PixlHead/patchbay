@@ -9,6 +9,7 @@ import { request } from './api';
 import type { Run, StepRun, Workflow } from './api';
 
 const statusLabel: Record<string, string> = {
+  queued: 'Queued',
   running: 'Running',
   succeeded: 'Completed',
   failed: 'Failed',
@@ -310,8 +311,8 @@ function WorkflowPage({
                           >
                             <div>
                               <Status status={run.status} />
-                              <time dateTime={run.startedAt}>
-                                {new Date(run.startedAt).toLocaleString([], {
+                              <time dateTime={run.createdAt}>
+                                {new Date(run.createdAt).toLocaleString([], {
                                   dateStyle: 'short',
                                   timeStyle: 'medium',
                                 })}
@@ -339,6 +340,12 @@ function WorkflowPage({
 
 function RunDetails({ run }: { run: Run }) {
   const unhealthy = run.steps.filter((step) => step.output && !step.output.healthy).length;
+  let timing = 'No completion recorded yet';
+  if (run.status === 'queued') timing = 'Waiting for an execution slot';
+  else if (!run.startedAt) timing = 'Never started';
+  else if (run.finishedAt) {
+    timing = `${Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())} ms total`;
+  } else if (run.status === 'interrupted') timing = 'Finish time unknown';
   return (
     <section className="panel run-details" aria-label="Run results" aria-live="polite">
       <div className="panel-heading">
@@ -346,13 +353,7 @@ function RunDetails({ run }: { run: Run }) {
         <Status status={run.status} />
       </div>
       <div className="run-summary">
-        <span>
-          {run.finishedAt
-            ? `${Math.max(0, new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime())} ms total`
-            : run.status === 'interrupted'
-              ? 'Finish time unknown'
-              : 'No completion recorded yet'}
-        </span>
+        <span>{timing}</span>
         <span>
           {unhealthy > 0
             ? `${unhealthy} unhealthy ${unhealthy === 1 ? 'service' : 'services'}`
@@ -365,9 +366,11 @@ function RunDetails({ run }: { run: Run }) {
         <StepResult key={step.id} step={step} />
       ))}
       <p className="result-help">
-        {run.status === 'interrupted'
-          ? 'Patchbay restarted before this run’s completion was recorded. Saved results are preserved; steps were not resumed.'
-          : 'Completed means the checks finished. Each service has its own health result.'}
+        {run.status === 'queued'
+          ? 'This run will start automatically when an execution slot is available.'
+          : run.status === 'interrupted'
+            ? 'Patchbay restarted before this run’s completion was recorded. Saved results are preserved; steps were not resumed.'
+            : 'Completed means the checks finished. Each service has its own health result.'}
       </p>
       <details className="definition">
         <summary>View execution JSON</summary>

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"patchbay/internal/engine"
 	"patchbay/internal/workflow"
@@ -27,6 +28,11 @@ func TestMarkUnfinishedRunsInterruptedPreservesSavedResults(t *testing.T) {
 	for i, step := range beforeExecution.Steps {
 		beforeExecution.Steps[i] = engine.StepRun{ID: step.ID, Name: step.Name, Status: "pending"}
 	}
+	_, queued := runFixture()
+	queued.ID, queued.Status, queued.StartedAt, queued.FinishedAt = "queued", "queued", time.Time{}, nil
+	for i, step := range queued.Steps {
+		queued.Steps[i] = engine.StepRun{ID: step.ID, Name: step.Name, Status: "pending"}
+	}
 	// Every step result was saved, but the final run update never completed.
 	// The known failure and its error must survive interruption handling.
 	_, afterExecution := runFixture()
@@ -39,7 +45,7 @@ func TestMarkUnfinishedRunsInterruptedPreservesSavedResults(t *testing.T) {
 		run.Steps[1].Status, run.Steps[2].Status = "running", "pending"
 		terminalRuns = append(terminalRuns, run)
 	}
-	for _, run := range append([]engine.Run{active, beforeExecution, afterExecution}, terminalRuns...) {
+	for _, run := range append([]engine.Run{active, beforeExecution, afterExecution, queued}, terminalRuns...) {
 		if err := CreateRun(ctx, db, run, definition); err != nil {
 			t.Fatal(err)
 		}
@@ -50,13 +56,16 @@ func TestMarkUnfinishedRunsInterruptedPreservesSavedResults(t *testing.T) {
 	for i := range beforeExecution.Steps {
 		beforeExecution.Steps[i].Status = "skipped"
 	}
-	afterExecution.Status = "interrupted"
+	afterExecution.Status, queued.Status = "interrupted", "interrupted"
+	for i := range queued.Steps {
+		queued.Steps[i].Status = "skipped"
+	}
 	// The second call must not change already reconciled history.
-	for _, wantCount := range []int64{3, 0} {
+	for _, wantCount := range []int64{4, 0} {
 		if count, err := MarkUnfinishedRunsInterrupted(ctx, db); err != nil || count != wantCount {
 			t.Fatalf("want %d changed runs, got %d, %v", wantCount, count, err)
 		}
-		for _, expected := range append([]engine.Run{active, beforeExecution, afterExecution}, terminalRuns...) {
+		for _, expected := range append([]engine.Run{active, beforeExecution, afterExecution, queued}, terminalRuns...) {
 			// Also checks definition JSON, creation time, step order, outputs and errors.
 			assertStoredRun(t, db, definition, expected)
 		}

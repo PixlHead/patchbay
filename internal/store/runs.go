@@ -26,14 +26,11 @@ func CreateRun(ctx context.Context, db *sql.DB, run engine.Run, definition workf
 	}
 	defer tx.Rollback() // Any failed insert rolls back the entire run.
 
-	// Runs currently start immediately, so creation and start share a timestamp.
-	// Queued runs will need a separate creation time when admission is added.
-	started := run.StartedAt.UnixMilli()
 	_, err = tx.ExecContext(ctx, `INSERT INTO runs
         (id, workflow_id, workflow_name, definition_json, status, created_at, started_at, finished_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		run.ID, run.WorkflowID, run.WorkflowName, string(definitionJSON), run.Status,
-		started, started, unixMilliOrNull(run.FinishedAt))
+		run.CreatedAt.UnixMilli(), unixMilliOrNull(&run.StartedAt), unixMilliOrNull(run.FinishedAt))
 	if err != nil {
 		return fmt.Errorf("insert run %q: %w", run.ID, err)
 	}
@@ -77,7 +74,7 @@ func UpdateRun(ctx context.Context, db *sql.DB, run engine.Run) error {
 
 	result, err := tx.ExecContext(ctx, `UPDATE runs
         SET status = ?, started_at = ?, finished_at = ? WHERE id = ?`,
-		run.Status, run.StartedAt.UnixMilli(), unixMilliOrNull(run.FinishedAt), run.ID)
+		run.Status, unixMilliOrNull(&run.StartedAt), unixMilliOrNull(run.FinishedAt), run.ID)
 	if err != nil {
 		return fmt.Errorf("update run %q: %w", run.ID, err)
 	}
@@ -128,7 +125,7 @@ func UpdateRun(ctx context.Context, db *sql.DB, run engine.Run) error {
 }
 
 func unixMilliOrNull(value *time.Time) any {
-	if value == nil {
+	if value == nil || value.IsZero() {
 		return nil
 	}
 	return value.UnixMilli()

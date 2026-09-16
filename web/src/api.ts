@@ -34,8 +34,9 @@ export type Run = {
   id: string;
   workflowId: string;
   workflowName: string;
-  status: 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted';
-  startedAt: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted';
+  createdAt: string;
+  startedAt?: string;
   finishedAt?: string;
   steps: StepRun[];
 };

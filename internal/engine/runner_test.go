@@ -41,7 +41,7 @@ func awaitRun(t *testing.T, runner *Runner, id string) Run {
 
 func TestSequentialChecksAndSnapshots(t *testing.T) {
 	var called []string
-	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		called = append(called, step.ID)
 		return workflow.HTTPResult{Healthy: false, Reason: "maintenance"}, nil
 	}, nil, nil)
@@ -68,7 +68,7 @@ func TestSequentialChecksAndSnapshots(t *testing.T) {
 }
 
 func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
-	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{}, errors.New("executor failed")
 	}, nil, nil)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
 
 func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 	started := make(chan struct{})
-	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		close(started)
 		<-ctx.Done()
 		return workflow.HTTPResult{}, ctx.Err()
@@ -101,7 +101,7 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-started
-	if _, err := runner.Start(example()); !errors.Is(err, ErrWorkflowRunning) {
+	if _, err := runner.Start(example()); !errors.Is(err, ErrWorkflowBusy) {
 		t.Fatalf("expected busy, got %v", err)
 	}
 	var readers sync.WaitGroup
@@ -125,7 +125,7 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 }
 
 func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
-	runner, err := New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
 	}, nil, nil)
 	if err != nil {

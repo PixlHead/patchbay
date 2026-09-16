@@ -499,6 +499,10 @@ main {
   color: #4e7160;
   background: #eaf1ec;
 }
+.status-queued {
+  color: #9c651b;
+  background: #fff0dd;
+}
 .status-running {
   color: #316b92;
   background: #e9f3fb;

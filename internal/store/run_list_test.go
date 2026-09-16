@@ -32,14 +32,12 @@ func TestListRunsOrdersAndLimitsCompleteHistory(t *testing.T) {
 	} {
 		definition, run := runFixture()
 		run.ID = entry.id
+		run.CreatedAt = time.UnixMilli(entry.created).UTC()
 		run.Steps[0].Output.Reason = entry.id
 		if err := CreateRun(ctx, db, run, definition); err != nil {
 			t.Fatal(err)
 		}
 		// Creation order must win over ID, insertion order, and start time.
-		if _, err := db.ExecContext(ctx, "UPDATE runs SET created_at = ? WHERE id = ?", entry.created, run.ID); err != nil {
-			t.Fatal(err)
-		}
 		saved[run.ID] = run
 	}
 	want := []engine.Run{saved["run-b"], saved["run-a"], saved["run-z"], saved["run-zz"]}

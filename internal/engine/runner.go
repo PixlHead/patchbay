@@ -15,10 +15,10 @@ import (
 )
 
 var (
-	ErrWorkflowRunning = errors.New("this workflow is already running; wait for it to finish")
-	ErrCapacity        = errors.New("maximum active workflows reached; wait for a run to finish")
-	ErrClosed          = errors.New("the runner is shutting down")
-	ErrRecordRun       = errors.New("could not save run")
+	ErrWorkflowBusy = errors.New("this workflow is already queued or running; wait for it to finish")
+	ErrCapacity     = errors.New("workflow capacity reached; wait for a run to finish")
+	ErrClosed       = errors.New("the runner is shutting down")
+	ErrRecordRun    = errors.New("could not save run")
 )
 
 type StepRun struct {
@@ -36,7 +36,8 @@ type Run struct {
 	WorkflowID   string     `json:"workflowId"`
 	WorkflowName string     `json:"workflowName"`
 	Status       string     `json:"status"`
-	StartedAt    time.Time  `json:"startedAt"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	StartedAt    time.Time  `json:"startedAt,omitzero"` // Zero until started; omit it from queued JSON.
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 	Steps        []StepRun  `json:"steps"`
 }
@@ -56,31 +57,44 @@ type RecordNewRun func(context.Context, Run, workflow.Definition) error
 type UpdateSavedRun func(context.Context, Run) error
 
 type Runner struct {
-	mu              sync.Mutex
-	runs            map[string]Run
-	order           []string
-	activeWorkflows map[string]struct{}
-	maxActiveRuns   int
-	closed          bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	mu            sync.Mutex
+	runs          map[string]Run
+	order         []string
+	busyWorkflows map[string]struct{}
+	activeRuns    int
+	pending       []queuedRun
+	maxQueuedRuns int
+	maxActiveRuns int
+	closed        bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 
 	execute        ExecuteStep
 	recordNewRun   RecordNewRun
 	updateSavedRun UpdateSavedRun
 }
 
-// New requires a positive limit for simultaneous runs.
+// queuedRun retains the definition captured at admission; waiting work owns no goroutine.
+type queuedRun struct {
+	id         string
+	definition workflow.Definition
+}
+
+// New requires a positive active limit and a nonnegative queue limit.
+// A queue limit of zero rejects starts whenever all active slots are occupied.
 // Nil persistence callbacks keep the runner in memory for executor tests.
-func New(maxActiveRuns int, execute ExecuteStep, recordNewRun RecordNewRun, updateSavedRun UpdateSavedRun) (*Runner, error) {
+func New(maxActiveRuns, maxQueuedRuns int, execute ExecuteStep, recordNewRun RecordNewRun, updateSavedRun UpdateSavedRun) (*Runner, error) {
 	if maxActiveRuns < 1 {
 		return nil, fmt.Errorf("max active runs must be at least 1")
+	}
+	if maxQueuedRuns < 0 {
+		return nil, fmt.Errorf("max queued runs must be at least 0")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Runner{
 		runs: make(map[string]Run), ctx: ctx, cancel: cancel,
-		activeWorkflows: make(map[string]struct{}), maxActiveRuns: maxActiveRuns,
+		busyWorkflows: make(map[string]struct{}), maxActiveRuns: maxActiveRuns, maxQueuedRuns: maxQueuedRuns,
 		execute: execute, recordNewRun: recordNewRun, updateSavedRun: updateSavedRun,
 	}, nil
 }
@@ -95,15 +109,19 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 	if r.closed {
 		return Run{}, ErrClosed
 	}
-	if _, exists := r.activeWorkflows[definition.ID]; exists {
-		return Run{}, ErrWorkflowRunning
+	if _, exists := r.busyWorkflows[definition.ID]; exists {
+		return Run{}, ErrWorkflowBusy
 	}
-	if len(r.activeWorkflows) >= r.maxActiveRuns {
-		return Run{}, fmt.Errorf("%w (limit %d)", ErrCapacity, r.maxActiveRuns)
+	queued := r.activeRuns >= r.maxActiveRuns
+	if queued && len(r.pending) >= r.maxQueuedRuns {
+		return Run{}, fmt.Errorf("%w (active limit %d, queue limit %d)", ErrCapacity, r.maxActiveRuns, r.maxQueuedRuns)
 	}
 	run := Run{
 		ID: rand.Text(), WorkflowID: definition.ID, WorkflowName: definition.Name,
-		Status: "running", StartedAt: time.Now().UTC(), Steps: make([]StepRun, len(definition.Steps)),
+		Status: "queued", CreatedAt: time.Now().UTC(), Steps: make([]StepRun, len(definition.Steps)),
+	}
+	if !queued {
+		run.Status, run.StartedAt = "running", run.CreatedAt
 	}
 	for i, step := range definition.Steps {
 		run.Steps[i] = StepRun{ID: step.ID, Name: step.Name, Status: "pending"}
@@ -120,10 +138,14 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 	}
 	r.order = append(r.order, run.ID)
 	r.runs[run.ID] = run
-	r.activeWorkflows[definition.ID] = struct{}{}
+	r.busyWorkflows[definition.ID] = struct{}{}
 	r.trimHistoryLocked()
-	r.wg.Add(1)
-	go r.run(run.ID, definition)
+	entry := queuedRun{id: run.ID, definition: definition}
+	if queued {
+		r.pending = append(r.pending, entry)
+	} else {
+		r.launchLocked(entry)
+	}
 	return copyRun(run), nil
 }
 
@@ -148,14 +170,50 @@ func (r *Runner) Close() {
 	r.mu.Lock()
 	r.closed = true
 	r.cancel()
+	pending := r.pending
+	r.pending = nil
+	if len(pending) > 0 {
+		// Other concurrent Close calls must also wait for queued-run cleanup.
+		r.wg.Add(1)
+	}
 	r.mu.Unlock()
+	if len(pending) > 0 {
+		r.cancelQueued(pending)
+	}
 	r.wg.Wait()
+}
+
+// Caller holds mu. Reserve the slot before another submission can take it.
+func (r *Runner) launchLocked(entry queuedRun) {
+	r.activeRuns++
+	r.wg.Add(1)
+	go r.run(entry.id, entry.definition)
+}
+
+func (r *Runner) cancelQueued(pending []queuedRun) {
+	defer r.wg.Done()
+	// Bound the whole queue's cleanup, rather than adding five seconds per entry.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
+	defer cancel()
+	for _, entry := range pending {
+		run, _ := r.Get(entry.id)
+		run = r.finishRun(ctx, run, "canceled")
+		r.mu.Lock()
+		r.runs[run.ID] = copyRun(run)
+		delete(r.busyWorkflows, run.WorkflowID)
+		r.trimHistoryLocked()
+		r.mu.Unlock()
+	}
 }
 
 func (r *Runner) run(id string, definition workflow.Definition) {
 	defer r.wg.Done()
 	// This goroutine owns its working copy; readers only see published snapshots.
 	run, _ := r.Get(id)
+	if run.Status == "queued" && r.ctx.Err() == nil {
+		// The first step-start save persists this transition before any action runs.
+		run.Status, run.StartedAt = "running", time.Now().UTC()
+	}
 	status := "succeeded"
 	for i, step := range definition.Steps {
 		if r.ctx.Err() != nil {
@@ -207,6 +265,21 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 			break
 		}
 	}
+	run = r.finishRun(context.WithoutCancel(r.ctx), run, status)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.runs[id] = copyRun(run)
+	delete(r.busyWorkflows, definition.ID)
+	r.activeRuns--
+	if !r.closed && len(r.pending) > 0 {
+		next := r.pending[0]
+		r.pending = slices.Delete(r.pending, 0, 1)
+		r.launchLocked(next)
+	}
+	r.trimHistoryLocked()
+}
+
+func (r *Runner) finishRun(ctx context.Context, run Run, status string) Run {
 	finished := time.Now().UTC()
 	run.Status, run.FinishedAt = status, &finished
 	for i := range run.Steps {
@@ -215,13 +288,11 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 		}
 	}
 	// One final attempt also runs after a progress-save failure or shutdown.
-	// The helper logs failures; memory retains the actual execution results.
-	_ = r.saveRunUpdate(context.WithoutCancel(r.ctx), run)
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.runs[id] = copyRun(run)
-	delete(r.activeWorkflows, definition.ID)
-	r.trimHistoryLocked()
+	if err := r.saveRunUpdate(ctx, run); err != nil && ctx.Err() != nil {
+		// saveRunUpdate suppresses cancellation logs during ordinary progress writes.
+		slog.Error("could not save final run", "run_id", run.ID, "error", err)
+	}
+	return run
 }
 
 func (r *Runner) saveRunUpdate(ctx context.Context, run Run) error {
@@ -243,12 +314,15 @@ func (r *Runner) publishRun(run Run) {
 	r.runs[run.ID] = copyRun(run)
 }
 
-// Caller holds mu. Keep active runs even when newer runs fill the history limit.
+// Caller holds mu. Never evict queued or running work from memory.
 func (r *Runner) trimHistoryLocked() {
 	for len(r.order) > 100 {
-		i := slices.IndexFunc(r.order, func(id string) bool { return r.runs[id].Status != "running" })
+		i := slices.IndexFunc(r.order, func(id string) bool {
+			status := r.runs[id].Status
+			return status != "running" && status != "queued"
+		})
 		if i < 0 {
-			return // More than 100 active runs: trim again when one finishes.
+			return // More than 100 unfinished runs: trim again when one finishes.
 		}
 		delete(r.runs, r.order[i])
 		r.order = slices.Delete(r.order, i, i+1)

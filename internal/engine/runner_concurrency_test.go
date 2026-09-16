@@ -13,7 +13,7 @@ import (
 
 func TestNewRejectsInvalidActiveRunLimits(t *testing.T) {
 	for _, limit := range []int{0, -1} {
-		runner, err := New(limit, nil, nil, nil)
+		runner, err := New(limit, 0, nil, nil, nil)
 		if runner != nil {
 			runner.Close()
 		}
@@ -27,7 +27,7 @@ func TestDifferentWorkflowsOverlapButTheirStepsStaySequential(t *testing.T) {
 	releaseA, releaseB := make(chan struct{}), make(chan struct{})
 	started := make(chan string, 10)
 	blocked := map[string]<-chan struct{}{"a-one": releaseA, "b-one": releaseB}
-	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		started <- step.ID
 		if release, ok := blocked[step.ID]; ok {
 			select {
@@ -94,11 +94,14 @@ func TestDifferentWorkflowsOverlapButTheirStepsStaySequential(t *testing.T) {
 }
 
 func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
-	for _, duplicate := range []bool{false, true} {
-		t.Run(fmt.Sprintf("same-workflow=%t", duplicate), func(t *testing.T) {
+	for _, test := range []struct {
+		duplicate bool
+		queued    int
+	}{{false, 0}, {false, 4}, {true, 4}} {
+		t.Run(fmt.Sprintf("same-workflow=%t/queue=%d", test.duplicate, test.queued), func(t *testing.T) {
 			var recorded atomic.Int32
 			started := make(chan struct{}, 24)
-			runner, err := New(3, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(3, test.queued, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
 				started <- struct{}{}
 				<-ctx.Done()
 				return workflow.HTTPResult{}, ctx.Err()
@@ -120,7 +123,7 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 				go func() {
 					<-begin
 					id := fmt.Sprintf("workflow-%d", i)
-					if duplicate {
+					if test.duplicate {
 						id = "same"
 					}
 					run, err := runner.Start(concurrentDefinition(id))
@@ -129,9 +132,9 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 				}()
 			}
 			close(begin)
-			wantCount, wantError := 3, ErrCapacity
-			if duplicate {
-				wantCount, wantError = 1, ErrWorkflowRunning
+			wantCount, wantActive, wantError := 3+test.queued, 3, ErrCapacity
+			if test.duplicate {
+				wantCount, wantActive, wantError = 1, 1, ErrWorkflowBusy
 			}
 			var accepted []Run
 			for range 24 {
@@ -149,17 +152,35 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 			if len(accepted) != wantCount || int(recorded.Load()) != wantCount || len(runner.List()) != wantCount {
 				t.Fatalf("want %d accepted and saved runs, got %d accepted, %d saves", wantCount, len(accepted), recorded.Load())
 			}
-			for range wantCount {
+			for range wantActive {
 				select {
 				case <-started:
 				case <-time.After(2 * time.Second):
 					t.Fatal("an accepted workflow did not begin execution")
 				}
 			}
+			running, queued := 0, 0
+			for _, run := range accepted {
+				if run.Status == "running" {
+					running++
+				} else if run.Status == "queued" {
+					queued++
+				}
+			}
+			if running != wantActive || queued != wantCount-wantActive {
+				t.Fatalf("wrong admission counts: %d running, %d queued", running, queued)
+			}
 			runner.Close()
 			for _, run := range accepted {
 				finished, _ := runner.Get(run.ID)
-				if finished.Status != "canceled" || finished.Steps[0].Status != "canceled" || finished.Steps[1].Status != "skipped" {
+				wantStep := "canceled"
+				if run.Status == "queued" {
+					wantStep = "skipped"
+					if !finished.StartedAt.IsZero() {
+						t.Fatal("shutdown started queued work")
+					}
+				}
+				if finished.Status != "canceled" || finished.Steps[0].Status != wantStep || finished.Steps[1].Status != "skipped" {
 					t.Fatalf("shutdown did not finish every active run: %+v", finished)
 				}
 			}
@@ -168,7 +189,7 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 }
 
 func TestActiveRunSurvivesMemoryHistoryTrimming(t *testing.T) {
-	runner, err := New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		if step.ID == "slow-one" {
 			<-ctx.Done()
 			return workflow.HTTPResult{}, ctx.Err()
@@ -198,7 +219,7 @@ func TestActiveRunSurvivesMemoryHistoryTrimming(t *testing.T) {
 func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
 	finalStarted := make(chan struct{}, 2)
 	release := make(chan struct{})
-	runner, err := New(1, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
 	}, nil, func(ctx context.Context, run Run) error {
 		if run.Status == "running" {
@@ -233,7 +254,7 @@ func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("final save did not start")
 	}
-	if _, err := runner.Start(concurrentDefinition("a")); !errors.Is(err, ErrWorkflowRunning) {
+	if _, err := runner.Start(concurrentDefinition("a")); !errors.Is(err, ErrWorkflowBusy) {
 		t.Fatalf("overlap was allowed during the final save: %v", err)
 	}
 	if _, err := runner.Start(concurrentDefinition("b")); !errors.Is(err, ErrCapacity) {
@@ -253,4 +274,37 @@ func concurrentDefinition(id string) workflow.Definition {
 		definition.Steps[i].ID = id + "-" + definition.Steps[i].ID
 	}
 	return definition
+}
+
+func TestQueuedRunsSurviveHistoryTrimming(t *testing.T) {
+	runner, err := New(1, 101, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+		<-ctx.Done()
+		return workflow.HTTPResult{}, ctx.Err()
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	for i := range 102 {
+		if _, err := runner.Start(concurrentDefinition(fmt.Sprintf("workflow-%d", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(runner.List()) != 102 {
+		t.Fatal("unfinished entries were evicted")
+	}
+	runner.Close()
+	if len(runner.List()) != 100 || runner.activeRuns != 0 || len(runner.busyWorkflows) != 0 {
+		t.Fatal("shutdown left unfinished work or unbounded history")
+	}
+}
+
+func TestNewRejectsNegativeQueueLimit(t *testing.T) {
+	runner, err := New(1, -1, nil, nil, nil)
+	if runner != nil {
+		runner.Close()
+	}
+	if runner != nil || err == nil {
+		t.Fatalf("accepted negative queue limit: %v", err)
+	}
 }

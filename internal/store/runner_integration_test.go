@@ -21,7 +21,7 @@ func TestRunnerPersistsExecutionToSQLite(t *testing.T) {
 	definition, _ := runFixture()
 	var id string
 	completed := make(chan struct{}, 1)
-	runner, err := engine.New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		saved, err := GetRun(ctx, db, id)
 		if err != nil {
 			return workflow.HTTPResult{}, err

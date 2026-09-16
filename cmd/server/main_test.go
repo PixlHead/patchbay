@@ -22,7 +22,7 @@ func TestRunServerInitializesDatabaseBeforeListenError(t *testing.T) {
 	defer cancel()
 	dbPath := filepath.Join(t.TempDir(), "data", "patchbay.db")
 	// This address fails parsing, so no network listener is opened.
-	err := runServer(ctx, "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2)
+	err := runServer(ctx, "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10)
 	var addressError *net.AddrError
 	if !errors.As(err, &addressError) {
 		t.Fatalf("expected a returned listen error after initialization, got %v", err)
@@ -60,7 +60,7 @@ func TestRunServerRejectsUnusableDatabasePaths(t *testing.T) {
 		{"file as parent", filepath.Join(parentFile, "patchbay.db"), "create database directory"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := runServer(ctx, "invalid-listen-address", directory, "", test.path, 2)
+			err := runServer(ctx, "invalid-listen-address", directory, "", test.path, 2, 10)
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("expected %q before attempting to listen, got %v", test.message, err)
 			}
@@ -106,7 +106,7 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			started := time.UnixMilli(1_750_000_000_000).UTC()
 			expected := engine.Run{
 				ID: "unfinished", WorkflowID: definition.ID, WorkflowName: definition.Name,
-				Status: "running", StartedAt: started,
+				Status: "running", CreatedAt: started, StartedAt: started,
 				Steps: []engine.StepRun{{
 					ID: definition.Steps[0].ID, Name: definition.Steps[0].Name,
 					Status: "running", StartedAt: &started,
@@ -129,7 +129,7 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			}
 
 			// An invalid address proves ordering without opening a network listener.
-			err = runServer(ctx, "invalid-listen-address", directory, "", dbPath, 2)
+			err = runServer(ctx, "invalid-listen-address", directory, "", dbPath, 2, 10)
 			var addressError *net.AddrError
 			if rejectUpdate {
 				if err == nil || !strings.Contains(err.Error(), "mark unfinished runs interrupted") || errors.As(err, &addressError) {
@@ -160,12 +160,23 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 func TestRunServerRejectsInvalidActiveRunLimitBeforeTouchingStorage(t *testing.T) {
 	for _, limit := range []int{0, -1} {
 		dbPath := filepath.Join(t.TempDir(), "data", "history.db")
-		err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, limit)
+		err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, limit, 10)
 		if err == nil || !strings.Contains(err.Error(), "max-active-runs must be at least 1") {
 			t.Fatalf("limit %d was not rejected before loading workflows: %v", limit, err)
 		}
 		if _, err := os.Stat(filepath.Dir(dbPath)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("invalid configuration touched storage: %v", err)
 		}
+	}
+}
+
+func TestRunServerRejectsNegativeQueueLimitBeforeTouchingStorage(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "data", "history.db")
+	err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, 2, -1)
+	if err == nil || !strings.Contains(err.Error(), "max-queued-runs must be at least 0") {
+		t.Fatalf("unexpected validation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(dbPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid queue limit touched storage: %v", err)
 	}
 }

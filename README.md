@@ -4,7 +4,8 @@ A small local workflow runner, built with Go and React. Load a workflow,
 run its HTTP checks, and inspect the results in your browser.
 
 The M0 skeleton is gaining M1 persistence and concurrency. Steps within a run
-execute sequentially; by default, two different workflows can run at once.
+execute sequentially; by default, two different workflows can run at once,
+with ten more waiting in a first-in, first-out (FIFO) queue.
 Run snapshots, step progress, and completed results are saved in SQLite. The
 frontend displays the latest 100 saved runs across workflows, including earlier
 server sessions. Workflow definitions live in JSON files and are loaded at startup.
@@ -83,30 +84,44 @@ go run ./cmd/server -db ./data/development.db
 
 `-max-active-runs` sets the maximum number of active workflows (default 2).
 It must be at least 1; use 1 to keep execution limited to one workflow at a time.
+`-max-queued-runs` sets the number of waiting runs (default 10). It must be
+nonnegative; use 0 to reject new starts immediately when all active slots are full.
 For native development:
 
 ```sh
-go run ./cmd/server -max-active-runs 4
+go run ./cmd/server -max-active-runs 4 -max-queued-runs 10
 ```
 
 For Docker Compose, set the app service's command when changing the limit:
 
 ```yaml
-command: ["/app/patchbay", "-addr", "0.0.0.0:8080", "-max-active-runs", "4"]
+command: ["/app/patchbay", "-addr", "0.0.0.0:8080", "-max-active-runs", "4", "-max-queued-runs", "10"]
 ```
 
 Different workflows can execute concurrently. Each workflow still runs its steps
-in order, and the same workflow cannot have two active runs. Capacity and overlap
-checks happen together under the runner's mutex. A slot is released after the
-final save attempt, including failed or canceled runs. Failed initial saves do
+in order, and a workflow already queued or running cannot be submitted again.
+Capacity and overlap checks happen together under the runner's mutex. Waiting
+runs start in admission order, with the oldest entry reserving each freed slot
+before a new submission can take it. Waiting entries do not own goroutines.
+A slot is released after the final save attempt, including failed or canceled
+runs. Failed initial saves do
 not consume a slot. Execution and progress saves run outside that mutex; initial
 run creation stays serialized. Node executors and update callbacks must support
 concurrent calls from different runs. SQLite still serializes database access.
 
-There is no pending queue yet: rejected starts return an error and are not saved
-as executions. Shutdown cancels all active runs and waits for their final saves.
-The runner retains active runs while trimming older completed memory snapshots;
-the history API continues to read the latest 100 saved runs from SQLite.
+An accepted start returns HTTP 202 with either `running` or `queued` status.
+A full queue returns HTTP 429; rejected starts are not saved as executions.
+Queued runs are saved before acceptance and appear in history with their creation
+time and no start time. Promotion is saved before the first step executes.
+The frontend shows **Queued** while waiting. The runner retains both queued and
+running entries when trimming memory; the history API still lists the latest
+100 saved runs from SQLite.
+
+Shutdown stops queue promotion, cancels active and waiting runs, and waits for
+cleanup. A canceled waiting run has skipped steps and no start time. Queued-run
+cleanup shares a five-second save budget. If shutdown or a save fails, startup
+marks leftover queued/running records interrupted. Automatic resumption of saved
+queued work is a later increment; this queue currently lives within one process.
 
 ## Explore workflow canvases
 
@@ -246,8 +261,9 @@ curl -X POST -H 'Content-Type: application/json' \
 ```
 
 Use the returned ID to poll `GET /api/runs/{id}`. Starting the same workflow
-while it is active returns `409`. Starting a different workflow when the active
-limit is reached returns `429`, with the configured limit in the error message.
+while it is queued or running returns `409`. A different workflow waits when
+all active slots are full; once the queue is also full, starts return `429` with
+both configured limits in the error message.
 A missing workflow or run returns `404`. A missing content type returns `415`;
 an unexpected request body returns `400`.
 The run continues after the request finishes or the browser closes.
@@ -295,7 +311,8 @@ existing build with CGO disabled.
 The server now opens SQLite before starting HTTP and closes it after the runner
 stops. Database path or migration errors prevent startup. The runner saves a new
 run and its workflow snapshot before admitting it for execution. A failed save
-returns HTTP 500, starts no steps, and does not consume the runner's active slot.
+returns HTTP 500, starts no steps, and consumes neither an active slot nor
+queue space.
 The save uses a five-second timeout tied to the runner, so ending an HTTP request
 does not cancel an accepted run. Tests can pass nil persistence callbacks for an
 in-memory runner.
@@ -303,9 +320,9 @@ in-memory runner.
 The runner saves each step's start before executing it, then saves its result or
 error before moving on. A final update saves the run status and any skipped
 steps. Progress writes happen outside the history mutex and use five-second
-timeouts. Shutdown cancels execution, then allows up to five fresh seconds for
-the final save before closing SQLite. Compose allows 20 seconds for graceful
-shutdown, including database cleanup and HTTP shutdown.
+timeouts. Shutdown cancels execution, then allows up to five fresh seconds per
+active run's final save and one shared five-second budget for queued cleanup
+before closing SQLite. Compose allows 20 seconds for graceful shutdown, including database cleanup and HTTP shutdown.
 
 If a progress save fails, the runner logs the error with the run ID, stops later
 steps, and makes one final save attempt. Completed step outputs are preserved;
@@ -324,10 +341,11 @@ uses `data/patchbay.db`; Docker uses its named volume, so those installations
 have separate histories. A workflow page shows runs matching its current ID.
 Before creating the runner or accepting HTTP requests, startup calls
 `store.MarkUnfinishedRunsInterrupted(ctx, db)` with a five-second timeout.
-Saved `running` runs and their active steps become `interrupted`; pending steps
-become `skipped`. Completed results, errors, workflow snapshots, and timestamps
-are preserved. Missing finish times stay unknown, so the frontend shows
-**Interrupted** and **Finish time unknown** without inventing a duration.
+Saved `queued` and `running` runs become `interrupted`; active steps become
+`interrupted` and pending steps become `skipped`. Completed results, errors,
+workflow snapshots, and timestamps are preserved. Missing finish times stay
+unknown, so the frontend shows **Interrupted** and **Finish time unknown** for
+started runs, or **Never started** for waiting runs, without inventing a duration.
 
 The cleanup is one transaction. Failure prevents startup; success logs the
 number of affected runs when nonzero. Repeating it leaves completed and already
@@ -347,8 +365,9 @@ rejected. The migration tests cover reopening, conflicts, and version rejection.
 `store.CreateRun(ctx, db, run, definition)` inserts a run, its workflow snapshot,
 and its ordered step results in one transaction. Duplicate run IDs are rejected;
 a failed step insert rolls back the entire save. Missing timestamps and outputs
-are stored as SQL NULL. Since runs currently start immediately, creation and
-start use the same timestamp.
+are stored as SQL NULL. `createdAt` records admission; `startedAt` is absent
+until execution begins. Both columns already exist in schema version 1, so this
+change needs no migration. Updates preserve the original creation time.
 
 `store.UpdateRun(ctx, db, run)` saves execution statuses, timestamps, outputs,
 and errors together. It preserves the workflow snapshot, creation time, names,

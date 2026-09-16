@@ -35,15 +35,11 @@ func TestGetRunReadsPersistedHistory(t *testing.T) {
 					want.Steps[0].StartedAt = &want.StartedAt
 				}
 			}
+			if state == "not started" {
+				want.Status, want.StartedAt = "queued", time.Time{}
+			}
 			if err := CreateRun(ctx, db, want, definition); err != nil {
 				t.Fatal(err)
-			}
-			if state == "not started" {
-				// The schema permits NULL even though the runner starts immediately.
-				if _, err := db.ExecContext(ctx, "UPDATE runs SET started_at = NULL WHERE id = ?", want.ID); err != nil {
-					t.Fatal(err)
-				}
-				want.StartedAt = time.Time{}
 			}
 			// Another run may reuse every step ID without mixing its results in.
 			_, other := runFixture()

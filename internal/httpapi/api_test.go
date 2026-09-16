@@ -33,7 +33,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
 	release := make(chan struct{})
-	runner, err := engine.New(2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		select {
 		case <-release:
 			return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
@@ -106,7 +106,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 func TestRunSaveFailureReturnsServerError(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	executed := false
-	runner, err := engine.New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		executed = true
 		return workflow.HTTPResult{}, nil
 	}, func(context.Context, engine.Run, workflow.Definition) error {
@@ -133,7 +133,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 func TestAPIErrorResponses(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
-	runner, err := engine.New(2, func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
+	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,8 +180,8 @@ func openTestDB(t *testing.T, path string) *sql.DB {
 
 func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
-	started := make(chan struct{}, 4)
-	runner, err := engine.New(2, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+	started := make(chan struct{}, 6)
+	runner, err := engine.New(2, 1, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
 		started <- struct{}{}
 		<-ctx.Done()
 		return workflow.HTTPResult{}, ctx.Err()
@@ -195,7 +195,7 @@ func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 	}
 	defer runner.Close()
 	var definitions []workflow.Definition
-	for _, id := range []string{"a", "b", "c"} {
+	for _, id := range []string{"a", "b", "c", "d"} {
 		definition := testDefinitions()[0]
 		definition.ID = id
 		definitions = append(definitions, definition)
@@ -208,8 +208,10 @@ func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 	}{
 		{"a", http.StatusAccepted, ""},
 		{"b", http.StatusAccepted, ""},
-		{"a", http.StatusConflict, "this workflow is already running"},
-		{"c", http.StatusTooManyRequests, "limit 2"},
+		{"a", http.StatusConflict, "this workflow is already queued or running"},
+		{"c", http.StatusAccepted, ""},
+		{"c", http.StatusConflict, "already queued or running"},
+		{"d", http.StatusTooManyRequests, "queue limit 1"},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/api/workflows/"+test.id+"/runs", nil)
 		request.Header.Set("Content-Type", "application/json")
@@ -220,6 +222,15 @@ func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 		}
 		if (response.Header().Get("Location") != "") != (test.status == http.StatusAccepted) {
 			t.Fatal("only accepted runs should have a Location header")
+		}
+	}
+	queued, err := store.ListRuns(context.Background(), db, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range queued {
+		if run.WorkflowID == "c" && (run.Status != "queued" || !run.StartedAt.IsZero() || run.CreatedAt.IsZero()) {
+			t.Fatalf("queued admission was not persisted: %+v", run)
 		}
 	}
 	for range 2 {
@@ -234,10 +245,16 @@ func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved) != 2 {
+	if len(saved) != 3 {
 		t.Fatalf("rejected starts were saved or accepted runs disappeared: %+v", saved)
 	}
 	for _, run := range saved {
+		if run.WorkflowID == "c" {
+			if run.Status != "canceled" || run.FinishedAt == nil || !run.StartedAt.IsZero() || run.Steps[0].Status != "skipped" || run.Steps[0].StartedAt != nil {
+				t.Fatalf("shutdown executed waiting work or lost its cancellation: %+v", run)
+			}
+			continue
+		}
 		if run.Status != "canceled" || run.FinishedAt == nil || len(run.Steps) != 1 || run.Steps[0].Status != "canceled" || run.Steps[0].FinishedAt == nil {
 			t.Fatalf("Close returned without persisting cancellation: %+v", run)
 		}

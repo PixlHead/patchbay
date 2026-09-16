@@ -32,7 +32,7 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 	db = openTestDB(t, path)
 	// An empty runner represents the new process; neither run exists in memory.
 	// This test only sends GET requests, so it needs no executor.
-	runner, err := engine.New(2, nil, nil, nil)
+	runner, err := engine.New(2, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 
 func TestEmptyAndMissingHistory(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
-	runner, err := engine.New(2, nil, nil, nil)
+	runner, err := engine.New(2, 0, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestHistoryReadFailuresReturnServerErrors(t *testing.T) {
 			} else if _, err := db.ExecContext(context.Background(), "UPDATE run_steps SET output_json = ?", "{"); err != nil {
 				t.Fatal(err)
 			}
-			runner, err := engine.New(2, nil, nil, nil)
+			runner, err := engine.New(2, 0, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +130,7 @@ func historyRun(id string, started time.Time) engine.Run {
 	step := definition.Steps[0]
 	return engine.Run{
 		ID: id, WorkflowID: definition.ID, WorkflowName: definition.Name,
-		Status: "succeeded", StartedAt: started, FinishedAt: &finished,
+		Status: "succeeded", CreatedAt: started, StartedAt: started, FinishedAt: &finished,
 		Steps: []engine.StepRun{{
 			ID: step.ID, Name: step.Name, Status: "succeeded", StartedAt: &started, FinishedAt: &finished,
 			Output: &workflow.HTTPResult{Healthy: true, StatusCode: 200, DurationMS: 42, Reason: "expected status"},

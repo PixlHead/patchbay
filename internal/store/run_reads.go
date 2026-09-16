@@ -72,14 +72,16 @@ func ListRuns(ctx context.Context, db *sql.DB, limit int) ([]engine.Run, error) 
 // readRunInTx reads a run using the caller's existing database transaction.
 func readRunInTx(ctx context.Context, tx *sql.Tx, id string) (engine.Run, error) {
 	var run engine.Run
+	var created int64
 	var started, finished sql.NullInt64
 	err := tx.QueryRowContext(ctx, `SELECT id, workflow_id, workflow_name, status,
-        started_at, finished_at FROM runs WHERE id = ?`, id).
-		Scan(&run.ID, &run.WorkflowID, &run.WorkflowName, &run.Status, &started, &finished)
+        created_at, started_at, finished_at FROM runs WHERE id = ?`, id).
+		Scan(&run.ID, &run.WorkflowID, &run.WorkflowName, &run.Status, &created, &started, &finished)
 	if err != nil {
 		return engine.Run{}, fmt.Errorf("read run %q: %w", id, err)
 	}
-	// The current Run type represents a missing start with Go's zero time.
+	run.CreatedAt = time.UnixMilli(created).UTC()
+	// A missing start uses zero time, omitted from JSON by the Run type.
 	if started.Valid {
 		run.StartedAt = time.UnixMilli(started.Int64).UTC()
 	}

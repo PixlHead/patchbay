@@ -53,6 +53,7 @@ test('an old unfinished run does not disable starting another workflow', async (
           workflowId: 'browser-checks',
           workflowName: 'Browser checks',
           status: 'running',
+          createdAt: '2025-01-02T12:00:00Z',
           startedAt: '2025-01-02T12:00:00Z',
           steps: [{ id: 'healthy', name: 'Expected response', status: 'running' }],
         },
@@ -63,7 +64,7 @@ test('an old unfinished run does not disable starting another workflow', async (
   await page.route('**/api/workflows/browser-checks/runs', (route) =>
     route.fulfill({
       status: 409,
-      json: { error: 'this workflow is already running; wait for it to finish' },
+      json: { error: 'this workflow is already queued or running; wait for it to finish' },
     }),
   );
   await page.goto('/');
@@ -71,7 +72,7 @@ test('an old unfinished run does not disable starting another workflow', async (
   const start = page.getByRole('button', { name: 'Run workflow', exact: true });
   await expect(start).toBeEnabled();
   await start.click();
-  await expect(page.getByRole('alert')).toContainText('this workflow is already running');
+  await expect(page.getByRole('alert')).toContainText('this workflow is already queued or running');
   await expect(start).toBeEnabled();
 });
 
@@ -84,6 +85,7 @@ test('interrupted history preserves results and shows an unknown finish time', a
           workflowId: 'browser-checks',
           workflowName: 'Browser checks',
           status: 'interrupted',
+          createdAt: '2025-01-02T12:00:00Z',
           startedAt: '2025-01-02T12:00:00Z',
           steps: [
             {
@@ -118,3 +120,44 @@ test('interrupted history preserves results and shows an unknown finish time', a
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
 });
+
+for (const status of ['queued', 'canceled', 'interrupted']) {
+  test(`a ${status} run without a start time has readable history`, async ({ page }) => {
+    await page.route('**/api/runs', (route) =>
+      route.fulfill({
+        json: [
+          {
+            id: 'waiting-run',
+            workflowId: 'browser-checks',
+            workflowName: 'Browser checks',
+            status,
+            createdAt: '2025-01-02T12:00:00Z',
+            ...(status === 'canceled' ? { finishedAt: '2025-01-02T12:01:00Z' } : {}),
+            steps: [
+              {
+                id: 'healthy',
+                name: 'Expected response',
+                status: status === 'queued' ? 'pending' : 'skipped',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    await page.goto('/');
+    const results = page.getByRole('region', { name: 'Run results' });
+    await expect(
+      results.getByText(status === 'queued' ? 'Waiting for an execution slot' : 'Never started', {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByText('Invalid Date', { exact: false })).toHaveCount(0);
+    await expect(results.getByText('NaN ms', { exact: false })).toHaveCount(0);
+    if (status === 'queued') {
+      await expect(results.getByText('Queued', { exact: true })).toBeVisible();
+      await expect(
+        results.getByText('This run will start automatically when an execution slot is available.'),
+      ).toBeVisible();
+    }
+  });
+}
