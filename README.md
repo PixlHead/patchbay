@@ -271,7 +271,7 @@ The run continues after the request finishes or the browser closes.
 ## Verify changes
 
 ```sh
-make test              # Go tests with race detection + TypeScript checking
+make test              # Go race tests + TypeScript checking (app, browser tests, configs)
 make build             # Production frontend and native app binary
 make fmt               # gofmt and Prettier
 ```
@@ -285,15 +285,21 @@ For the browser tests, install Chromium once and run:
 
 ```sh
 PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" npm --prefix web exec -- playwright install chromium
-PLAYWRIGHT_BROWSERS_PATH="$PWD/.cache/playwright" make e2e
+make e2e
 ```
 
-Playwright starts only Patchbay on port 18080, with workflow data from
-`web/tests/fixtures/workflows/` and a separate SQLite file at
-`.cache/e2e/patchbay.db`. Both checks call that test instance's own health
-endpoint: one expects HTTP 200 and one deliberately expects HTTP 204 to exercise
-unhealthy result rendering. Browser tests cover sequential result display,
-reload/history behavior, mobile layout, and disconnected backend feedback.
+The Makefile defaults `PLAYWRIGHT_BROWSERS_PATH` to `.cache/playwright`; an
+explicit environment override is respected. Playwright starts only Patchbay on
+port 18080, with workflow data from `web/tests/fixtures/workflows/`. Each server
+start gets a fresh `.cache/e2e/run.XXXXXX/patchbay.db`, so previous test runs
+cannot supply old results. These generated directories are retained for debugging
+and can be removed when no browser tests are running.
+
+Both checks call that test instance's own health endpoint: one expects HTTP 200
+and one deliberately expects HTTP 204 to exercise unhealthy result rendering.
+The execution test requires a successful POST and verifies that the newly created
+run ID completes and survives a browser reload. Browser tests also cover mobile
+layout and disconnected backend feedback.
 Timeouts, HTTP 503, and unreachable targets remain covered by Go's temporary
 HTTP test servers. Screenshots go to `web/test-results/`. Linux installations may
 also need Playwright's documented browser system dependencies.

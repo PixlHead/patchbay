@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import type { Run } from '../src/api';
 
 test('run sequential checks and retain healthy and unhealthy results on reload', async ({
   page,
@@ -7,9 +8,30 @@ test('run sequential checks and retain healthy and unhealthy results on reload',
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
+  const historyResponse = await page.request.get('/api/runs');
+  expect(historyResponse.ok()).toBeTruthy();
+  const previousRuns: Run[] = await historyResponse.json();
+  const startResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/workflows/browser-checks/runs',
+  );
   await page.getByRole('button', { name: 'Run workflow', exact: true }).click();
+  const startResponse = await startResponsePromise;
+  expect(startResponse.status()).toBe(202);
+  const started: Run = await startResponse.json();
+  expect(started.id).toEqual(expect.any(String));
+  expect(started.id).not.toBe('');
+  expect(previousRuns.map((run) => run.id)).not.toContain(started.id);
   const results = page.getByRole('region', { name: 'Run results' });
   const steps = results.getByRole('article');
+  // Check ID and completion together: an older result cannot satisfy this assertion.
+  const expectNewRunCompleted = async () => {
+    await expect
+      .poll(async () => JSON.parse((await results.locator('pre').textContent()) ?? '{}'))
+      .toMatchObject({ id: started.id, workflowId: 'browser-checks', status: 'succeeded' });
+  };
+  await expectNewRunCompleted();
   await expect(results.getByText('Completed', { exact: true })).toBeVisible();
   await expect(steps.getByText('Received expected HTTP 200')).toBeVisible();
   await expect(steps.getByText('Expected HTTP 204; received HTTP 200')).toBeVisible();
@@ -21,6 +43,7 @@ test('run sequential checks and retain healthy and unhealthy results on reload',
   ]);
 
   await page.reload();
+  await expectNewRunCompleted();
   await expect(steps.getByText('Received expected HTTP 200')).toBeVisible();
   await expect(steps.getByText('Expected HTTP 204; received HTTP 200')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
@@ -112,7 +135,7 @@ test('interrupted history preserves results and shows an unknown finish time', a
   const results = page.getByRole('region', { name: 'Run results' });
   await expect(results.getByText('Interrupted', { exact: true })).toHaveCount(2);
   await expect(results.getByText('Finish time unknown', { exact: true })).toBeVisible();
-  await expect(results.getByText('Received expected HTTP 200')).toBeVisible();
+  await expect(results.getByRole('article').getByText('Received expected HTTP 200')).toBeVisible();
   await expect(results.getByText('Healthy', { exact: true })).toBeVisible();
   await expect(results.getByText('Skipped', { exact: true })).toBeVisible();
   await expect(

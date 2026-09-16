@@ -1,5 +1,6 @@
 export GOCACHE := $(CURDIR)/.cache/go-build
 export npm_config_cache := $(CURDIR)/.cache/npm
+export PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.cache/playwright
 
 .PHONY: install build test e2e fmt api web up down
 
