@@ -287,12 +287,41 @@ func (r *Runner) finishRun(ctx context.Context, run Run, status string) Run {
 			run.Steps[i].Status = "skipped"
 		}
 	}
-	// One final attempt also runs after a progress-save failure or shutdown.
-	if err := r.saveRunUpdate(ctx, run); err != nil && ctx.Err() != nil {
-		// saveRunUpdate suppresses cancellation logs during ordinary progress writes.
-		slog.Error("could not save final run", "run_id", run.ID, "error", err)
+	// Retry only this completed snapshot, never the actions that produced it.
+	if err := r.saveFinalRun(ctx, run); err != nil {
+		slog.Error("could not save final run", "run_id", run.ID, "status", run.Status, "error", err)
 	}
 	return run
+}
+
+func (r *Runner) saveFinalRun(ctx context.Context, run Run) error {
+	if r.updateSavedRun == nil {
+		return nil
+	}
+	// All attempts and delays share one budget. A shorter parent deadline,
+	// such as queued-run shutdown cleanup, still takes precedence.
+	saveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(time.Duration(attempt) * 100 * time.Millisecond)
+			select {
+			case <-saveCtx.Done():
+				timer.Stop()
+				return errors.Join(err, saveCtx.Err())
+			case <-timer.C:
+			}
+		}
+		if saveCtx.Err() != nil {
+			return errors.Join(err, saveCtx.Err())
+		}
+		err = r.updateSavedRun(saveCtx, copyRun(run))
+		if err == nil || saveCtx.Err() != nil {
+			return err
+		}
+	}
+	return err
 }
 
 func (r *Runner) saveRunUpdate(ctx context.Context, run Run) error {

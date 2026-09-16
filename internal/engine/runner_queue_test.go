@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ func TestQueueIsFIFOAndWaitsForFinalSave(t *testing.T) {
 	started := make(chan string, 8)
 	releaseA, releaseB := make(chan struct{}), make(chan struct{})
 	finalA := make(chan struct{})
+	var finalOnce sync.Once
 	releaseFinal := make(chan struct{})
 	runner, err := New(1, 2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
 		started <- step.ID
@@ -37,7 +39,7 @@ func TestQueueIsFIFOAndWaitsForFinalSave(t *testing.T) {
 		if run.WorkflowID != "a" || run.Status == "running" {
 			return nil
 		}
-		close(finalA)
+		finalOnce.Do(func() { close(finalA) })
 		select {
 		case <-releaseFinal:
 			return errors.New("final save unavailable")

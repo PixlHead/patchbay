@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -218,6 +219,7 @@ func TestActiveRunSurvivesMemoryHistoryTrimming(t *testing.T) {
 
 func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
 	finalStarted := make(chan struct{}, 2)
+	var finalOnce sync.Once
 	release := make(chan struct{})
 	runner, err := New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
@@ -225,7 +227,7 @@ func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
 		if run.Status == "running" {
 			return nil
 		}
-		finalStarted <- struct{}{}
+		finalOnce.Do(func() { finalStarted <- struct{}{} })
 		select {
 		case <-release:
 			return errors.New("final save unavailable")

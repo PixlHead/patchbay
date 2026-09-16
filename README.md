@@ -144,8 +144,8 @@ in order, and a workflow already queued or running cannot be submitted again.
 Capacity and overlap checks happen together under the runner's mutex. Waiting
 runs start in admission order, with the oldest entry reserving each freed slot
 before a new submission can take it. Waiting entries do not own goroutines.
-A slot is released after the final save attempt, including failed or canceled
-runs. Failed initial saves do
+A slot is released after the final save succeeds or its retry limit/deadline is
+reached, including failed or canceled runs. Failed initial saves do
 not consume a slot. Execution and progress saves run outside that mutex; initial
 run creation stays serialized. Node executors and update callbacks must support
 concurrent calls from different runs. SQLite still serializes database access.
@@ -368,13 +368,22 @@ The runner saves each step's start before executing it, then saves its result or
 error before moving on. A final update saves the run status and any skipped
 steps. Progress writes happen outside the history mutex and use five-second
 timeouts. Shutdown cancels execution, then allows up to five fresh seconds per
-active run's final save and one shared five-second budget for queued cleanup
+active run's final save (including retries) and one shared five-second budget for queued cleanup
 before closing SQLite. Compose allows 20 seconds for graceful shutdown, including database cleanup and HTTP shutdown.
 
+Final updates make at most three attempts, with delays of 100 ms and 200 ms before
+the retries. All attempts and delays share the same five-second deadline, or the
+earlier queued-cleanup deadline. A slow attempt can consume the whole budget;
+three attempts are a limit, not a guarantee. Retries write the same completed
+snapshot, including its original finish time and step outputs.
+
 If a progress save fails, the runner logs the error with the run ID, stops later
-steps, and makes one final save attempt. Completed step outputs are preserved;
-steps that never executed are skipped. A failed final save is logged and leaves
-SQLite at its last successfully saved snapshot; memory keeps the latest result.
+steps, and saves the terminal state using that same final-save retry policy.
+Completed step outputs are preserved; steps that never executed are skipped.
+If all final-save attempts fail or time runs out, the failure is logged and
+SQLite retains its last saved snapshot. Memory keeps the latest result, but the
+API still reads SQLite, so the UI can show stale progress until startup marks it
+interrupted. Explicit API/UI reporting of this remaining failure is a follow-up.
 External actions are never retried because a database write failed.
 
 Both history endpoints now read SQLite using the request context and a

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"patchbay/internal/workflow"
@@ -87,8 +89,8 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 	}{
 		{"before first step", 1, false, 2, 0, "failed"},
 		{"after first step", 2, false, 3, 1, "failed"},
-		{"progress and final save", 2, true, 3, 1, "failed"},
-		{"final save only", 5, false, 5, 2, "succeeded"},
+		{"progress and final save", 2, true, 5, 1, "failed"},
+		{"final save only", 5, false, 6, 2, "succeeded"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			writes, executed := 0, 0
@@ -226,4 +228,102 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFinalSaveRetriesUnchangedResult(t *testing.T) {
+	// synctest advances a fake clock through retry delays without real sleeps.
+	synctest.Test(t, func(t *testing.T) {
+		var attempts []Run
+		var attemptedAt, deadlines []time.Time
+		runner := &Runner{updateSavedRun: func(ctx context.Context, run Run) error {
+			attempts = append(attempts, run)
+			attemptedAt = append(attemptedAt, time.Now())
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Error("final save has no deadline")
+			}
+			deadlines = append(deadlines, deadline)
+			if len(attempts) < 3 {
+				return errors.New("temporary storage failure")
+			}
+			return nil
+		}}
+		started := time.Now()
+		finished := runner.finishRun(context.Background(), Run{
+			ID: "retry", Status: "running", CreatedAt: started, StartedAt: started,
+			Steps: []StepRun{
+				{ID: "done", Status: "succeeded", Output: &workflow.HTTPResult{Healthy: true}},
+				{ID: "pending", Status: "pending"},
+			},
+		}, "failed")
+		if len(attempts) != 3 || finished.FinishedAt == nil || !finished.FinishedAt.Equal(started) || finished.Steps[1].Status != "skipped" {
+			t.Fatalf("unexpected finalization: %d attempts, %+v", len(attempts), finished)
+		}
+		for i, attempt := range attempts {
+			if !reflect.DeepEqual(attempt, finished) || !deadlines[i].Equal(started.Add(5*time.Second)) {
+				t.Fatalf("retry %d changed the result or extended its deadline", i+1)
+			}
+		}
+		if attemptedAt[1].Sub(attemptedAt[0]) != 100*time.Millisecond || attemptedAt[2].Sub(attemptedAt[1]) != 200*time.Millisecond {
+			t.Fatalf("unexpected retry delays: %v", attemptedAt)
+		}
+	})
+}
+
+func TestFinalSaveRespectsParentDeadlineDuringBackoff(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		storageError := errors.New("storage unavailable")
+		attempts := 0
+		runner := &Runner{updateSavedRun: func(context.Context, Run) error {
+			attempts++
+			return storageError
+		}}
+		started := time.Now()
+		err := runner.saveFinalRun(ctx, Run{ID: "retry", Status: "canceled"})
+		if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, storageError) || attempts != 1 || time.Since(started) != 50*time.Millisecond {
+			t.Fatalf("retry ignored the shared deadline: attempts=%d elapsed=%s error=%v", attempts, time.Since(started), err)
+		}
+	})
+}
+
+func TestCloseBoundsActiveAndQueuedFinalSaves(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var mu sync.Mutex
+		attempts := make(map[string]int)
+		runner, err := New(1, 2, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+			<-ctx.Done()
+			return workflow.HTTPResult{}, ctx.Err()
+		}, nil, func(ctx context.Context, run Run) error {
+			if run.Status != "canceled" {
+				return nil
+			}
+			mu.Lock()
+			attempts[run.WorkflowID]++
+			mu.Unlock()
+			<-ctx.Done() // A database that stays unavailable for the whole budget.
+			return ctx.Err()
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer runner.Close()
+		for _, id := range []string{"a", "b", "c"} {
+			if _, err := runner.Start(concurrentDefinition(id)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		synctest.Wait() // Let the active run reach its executor before shutdown.
+		started := time.Now()
+		runner.Close()
+		if time.Since(started) != 5*time.Second || !reflect.DeepEqual(attempts, map[string]int{"a": 1, "b": 1}) {
+			t.Fatalf("shutdown extended its budget: elapsed=%s attempts=%v", time.Since(started), attempts)
+		}
+		for _, run := range runner.List() {
+			if run.Status != "canceled" || run.FinishedAt == nil {
+				t.Fatalf("shutdown did not finish cancellation: %+v", run)
+			}
+		}
+	})
 }
