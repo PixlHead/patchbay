@@ -93,6 +93,34 @@ Relative paths and symlinks resolve to the same lock. Keep the database on a
 local filesystem (including Docker's local named volume); network filesystems
 and hard-link aliases are not supported.
 
+## Allowed request hosts
+
+The server accepts requests for `localhost`, `127.0.0.1`, and `::1` by default.
+An unexpected or malformed Host receives HTTP 403 before any API or frontend
+handler runs. This helps protect the local application against DNS rebinding.
+The hostname is compared without its port, so direct access, Vite's proxy on
+port 5173, Playwright on port 18080, and Docker's health check remain supported.
+DNS names are case-insensitive and may have a trailing dot; equivalent IPv6
+spellings are normalized. The check does not resolve incoming hostnames through DNS.
+
+Use `-allowed-hosts` to add exact hostnames or IP addresses, for example when
+using a hostname you control that resolves to the local server:
+
+```sh
+go run ./cmd/server -allowed-hosts patchbay.home.example
+```
+
+Separate additional entries with commas. Supply hostnames or IPs only: no URL
+scheme, port, wildcard, or IPv6 brackets. The default local hosts stay allowed.
+`-addr` controls where the server listens; it does not add allowed hosts, and
+binding to `0.0.0.0` or `::` does not permit every hostname. Docker needs no change
+for its existing loopback access. Only add names whose DNS you control.
+
+The guard uses the request's Host, ignoring `Forwarded` and `X-Forwarded-Host`.
+A reverse proxy must also reject unexpected public hostnames before rewriting
+Host to an allowed backend name. Host validation does not authenticate callers;
+the existing requirement to keep this prototype local until M1 login remains.
+
 ## Concurrent workflow runs
 
 `-max-active-runs` sets the maximum number of active workflows (default 2).

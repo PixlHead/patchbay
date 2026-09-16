@@ -22,7 +22,7 @@ func TestRunServerInitializesDatabaseBeforeListenError(t *testing.T) {
 	defer cancel()
 	dbPath := filepath.Join(t.TempDir(), "data", "patchbay.db")
 	// This address fails parsing, so no network listener is opened.
-	err := runServer(ctx, "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10)
+	err := runServer(ctx, "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10, "")
 	var addressError *net.AddrError
 	if !errors.As(err, &addressError) {
 		t.Fatalf("expected a returned listen error after initialization, got %v", err)
@@ -60,7 +60,7 @@ func TestRunServerRejectsUnusableDatabasePaths(t *testing.T) {
 		{"file as parent", filepath.Join(parentFile, "patchbay.db"), "create database directory"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			err := runServer(ctx, "invalid-listen-address", directory, "", test.path, 2, 10)
+			err := runServer(ctx, "invalid-listen-address", directory, "", test.path, 2, 10, "")
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("expected %q before attempting to listen, got %v", test.message, err)
 			}
@@ -140,7 +140,7 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			}
 
 			// An invalid address proves ordering without opening a network listener.
-			err = runServer(ctx, "invalid-listen-address", directory, "", dbPath, 2, 10)
+			err = runServer(ctx, "invalid-listen-address", directory, "", dbPath, 2, 10, "")
 			var addressError *net.AddrError
 			switch {
 			case test.databaseInUse:
@@ -186,7 +186,7 @@ func TestRunServerReleasesDatabaseLockAfterOpenFailure(t *testing.T) {
 	if err := os.WriteFile(dbPath, []byte("not a SQLite database"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := runServer(context.Background(), "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10)
+	err := runServer(context.Background(), "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10, "")
 	if err == nil || !strings.Contains(err.Error(), "open database") {
 		t.Fatalf("expected SQLite to reject the file, got %v", err)
 	}
@@ -200,7 +200,7 @@ func TestRunServerReleasesDatabaseLockAfterOpenFailure(t *testing.T) {
 func TestRunServerRejectsInvalidActiveRunLimitBeforeTouchingStorage(t *testing.T) {
 	for _, limit := range []int{0, -1} {
 		dbPath := filepath.Join(t.TempDir(), "data", "history.db")
-		err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, limit, 10)
+		err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, limit, 10, "")
 		if err == nil || !strings.Contains(err.Error(), "max-active-runs must be at least 1") {
 			t.Fatalf("limit %d was not rejected before loading workflows: %v", limit, err)
 		}
@@ -212,11 +212,22 @@ func TestRunServerRejectsInvalidActiveRunLimitBeforeTouchingStorage(t *testing.T
 
 func TestRunServerRejectsNegativeQueueLimitBeforeTouchingStorage(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "data", "history.db")
-	err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, 2, -1)
+	err := runServer(context.Background(), "invalid-listen-address", "missing-workflows", "", dbPath, 2, -1, "")
 	if err == nil || !strings.Contains(err.Error(), "max-queued-runs must be at least 0") {
 		t.Fatalf("unexpected validation: %v", err)
 	}
 	if _, err := os.Stat(filepath.Dir(dbPath)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("invalid queue limit touched storage: %v", err)
+	}
+}
+
+func TestRunServerRejectsInvalidAllowedHostsBeforeTouchingStorage(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "data", "history.db")
+	err := runServer(context.Background(), "0.0.0.0:8080", "missing-workflows", "", dbPath, 2, 10, "*")
+	if err == nil || !strings.Contains(err.Error(), "invalid allowed-hosts configuration") {
+		t.Fatalf("invalid allowed hosts were not rejected before loading workflows: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(dbPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid allowed hosts touched storage: %v", err)
 	}
 }

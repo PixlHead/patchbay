@@ -27,23 +27,28 @@ func main() {
 	dbPath := flag.String("db", "data/patchbay.db", "SQLite database file")
 	maxActiveRuns := flag.Int("max-active-runs", 2, "maximum concurrent workflow runs (at least 1)")
 	maxQueuedRuns := flag.Int("max-queued-runs", 10, "maximum waiting workflow runs (0 disables queuing)")
+	allowedHosts := flag.String("allowed-hosts", "", "comma-separated additional allowed hostnames or IPs (no ports)")
 	flag.Parse()
 
 	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if err := runServer(stop, *addr, *directory, *webDir, *dbPath, *maxActiveRuns, *maxQueuedRuns); err != nil {
+	if err := runServer(stop, *addr, *directory, *webDir, *dbPath, *maxActiveRuns, *maxQueuedRuns, *allowedHosts); err != nil {
 		slog.Error("patchbay failed", "error", err)
 		os.Exit(1)
 	}
 }
 
 // Returning errors lets deferred cleanup finish before main exits the process.
-func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxActiveRuns, maxQueuedRuns int) error {
+func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxActiveRuns, maxQueuedRuns int, allowedHosts string) error {
 	if maxActiveRuns < 1 {
 		return fmt.Errorf("max-active-runs must be at least 1")
 	}
 	if maxQueuedRuns < 0 {
 		return fmt.Errorf("max-queued-runs must be at least 0")
+	}
+	hostGuard, err := httpapi.NewHostGuard(allowedHosts)
+	if err != nil {
+		return fmt.Errorf("invalid allowed-hosts configuration: %w", err)
 	}
 	definitions, err := workflow.Load(directory)
 	if err != nil {
@@ -95,7 +100,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 	}
 	defer runner.Close()
 	server := &http.Server{
-		Addr: addr, Handler: httpapi.New(definitions, runner, db, webDir),
+		Addr: addr, Handler: hostGuard.Wrap(httpapi.New(definitions, runner, db, webDir)),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 	}
