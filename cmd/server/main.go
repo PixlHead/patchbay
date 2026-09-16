@@ -52,11 +52,21 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return fmt.Errorf("create database directory: %w", err)
 	}
+	// Take ownership before migrations or startup cleanup can change saved runs.
+	databaseLock, err := lockDatabase(dbPath)
+	if err != nil {
+		return fmt.Errorf("lock database %q: %w", dbPath, err)
+	}
+	defer func() {
+		if err := databaseLock.Close(); err != nil {
+			slog.Error("database lock close failed", "error", err)
+		}
+	}()
 	db, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return fmt.Errorf("open database %q: %w", dbPath, err)
 	}
-	// Defers run in reverse order: the runner stops before the database closes.
+	// Defers run in reverse order: stop the runner, close SQLite, release the lock.
 	defer func() {
 		if err := db.Close(); err != nil {
 			slog.Error("database close failed", "error", err)

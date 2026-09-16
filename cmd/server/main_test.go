@@ -55,8 +55,8 @@ func TestRunServerRejectsUnusableDatabasePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range []struct{ name, path, message string }{
-		{"empty path", "", "open database"},
-		{"directory as database", t.TempDir(), "open database"},
+		{"empty path", "", "lock database"},
+		{"directory as database", t.TempDir(), "lock database"},
 		{"file as parent", filepath.Join(parentFile, "patchbay.db"), "create database directory"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -83,12 +83,16 @@ func writeStartupWorkflow(t *testing.T) string {
 }
 
 func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
-	for _, rejectUpdate := range []bool{false, true} {
-		name := "success"
-		if rejectUpdate {
-			name = "failed cleanup prevents startup"
-		}
-		t.Run(name, func(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		rejectUpdate  bool
+		databaseInUse bool
+	}{
+		{name: "success"},
+		{name: "failed cleanup prevents startup", rejectUpdate: true},
+		{name: "another server owns the database", databaseInUse: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			directory := writeStartupWorkflow(t)
@@ -115,7 +119,7 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			if err := store.CreateRun(ctx, db, expected, definition); err != nil {
 				t.Fatal(err)
 			}
-			if rejectUpdate {
+			if test.rejectUpdate {
 				_, err := db.ExecContext(ctx, `CREATE TRIGGER reject_interruption
                     BEFORE UPDATE OF status ON runs
                     WHEN NEW.status = 'interrupted'
@@ -127,19 +131,39 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}
+			if test.databaseInUse {
+				lock, err := lockDatabase(dbPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer lock.Close()
+			}
 
 			// An invalid address proves ordering without opening a network listener.
 			err = runServer(ctx, "invalid-listen-address", directory, "", dbPath, 2, 10)
 			var addressError *net.AddrError
-			if rejectUpdate {
+			switch {
+			case test.databaseInUse:
+				if !errors.Is(err, errDatabaseInUse) {
+					t.Fatalf("expected database ownership to prevent startup, got %v", err)
+				}
+			case test.rejectUpdate:
 				if err == nil || !strings.Contains(err.Error(), "mark unfinished runs interrupted") || errors.As(err, &addressError) {
 					t.Fatalf("expected cleanup to fail before HTTP startup, got %v", err)
 				}
-			} else {
+			default:
 				if !errors.As(err, &addressError) {
 					t.Fatalf("expected HTTP startup after cleanup, got %v", err)
 				}
 				expected.Status, expected.Steps[0].Status = "interrupted", "interrupted"
+			}
+			if !test.databaseInUse {
+				// Both reconciliation and listen failures must release server ownership.
+				lock, err := lockDatabase(dbPath)
+				if err != nil {
+					t.Fatalf("startup failure left the database locked: %v", err)
+				}
+				defer lock.Close()
 			}
 			db, err = store.Open(ctx, dbPath)
 			if err != nil {
@@ -155,6 +179,22 @@ func TestRunServerReconcilesHistoryBeforeListening(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunServerReleasesDatabaseLockAfterOpenFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "invalid.db")
+	if err := os.WriteFile(dbPath, []byte("not a SQLite database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := runServer(context.Background(), "invalid-listen-address", writeStartupWorkflow(t), "", dbPath, 2, 10)
+	if err == nil || !strings.Contains(err.Error(), "open database") {
+		t.Fatalf("expected SQLite to reject the file, got %v", err)
+	}
+	lock, err := lockDatabase(dbPath)
+	if err != nil {
+		t.Fatalf("failed database open left it locked: %v", err)
+	}
+	defer lock.Close()
 }
 
 func TestRunServerRejectsInvalidActiveRunLimitBeforeTouchingStorage(t *testing.T) {

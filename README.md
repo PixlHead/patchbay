@@ -80,6 +80,19 @@ Use `-db` to choose another file, for example:
 go run ./cmd/server -db ./data/development.db
 ```
 
+Only one Patchbay server may use a database at a time, even on different ports.
+On Linux and macOS, startup takes an operating-system lock on `<database>.lock`
+before migrations or interrupted-run cleanup. A second server exits with
+`database is already in use by another Patchbay instance`. Use a different `-db`
+file to run an independent instance.
+
+The lock lasts until the runner stops and SQLite closes; the OS also releases it
+if the process crashes. The empty `.lock` file remains for reuse and does not
+mean a server is still running. Do not delete it while Patchbay is running.
+Relative paths and symlinks resolve to the same lock. Keep the database on a
+local filesystem (including Docker's local named volume); network filesystems
+and hard-link aliases are not supported.
+
 ## Concurrent workflow runs
 
 `-max-active-runs` sets the maximum number of active workflows (default 2).
