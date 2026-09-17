@@ -212,6 +212,14 @@ Response time measures receipt of HTTP response headers. The executor does not
 download or store response bodies. Redirects are reported as responses rather
 than followed, and normal HTTPS certificate validation remains enabled.
 
+HTTP checks configure a 64 KiB response-header limit on their transport; Go
+applies the corresponding protocol-specific accounting for HTTP/1 and HTTP/2.
+Oversized or malformed responses produce an unhealthy result rather than an
+engine failure. Request-failure reasons are capped at 4 KiB of UTF-8 text,
+including the prefix and an `... [truncated]` marker when needed. Invalid UTF-8
+is replaced and truncation preserves character boundaries. The text limit applies
+before JSON escaping; previously saved history is not rewritten by this change.
+
 ## Change a workflow
 
 Edit a file in `workflows/`, or add another `.json` file using this structure:

@@ -5,9 +5,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"patchbay/internal/workflow"
+)
+
+const (
+	maxHTTPHeaderBytes = 64 * 1024
+	maxHTTPReasonBytes = 4 * 1024
 )
 
 type HTTP struct {
@@ -15,7 +22,12 @@ type HTTP struct {
 }
 
 func NewHTTP() *HTTP {
+	// Keep Go's connection, proxy, TLS, and HTTP/2 defaults without changing
+	// the shared transport used by other clients.
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxResponseHeaderBytes = maxHTTPHeaderBytes
 	return &HTTP{client: &http.Client{
+		Transport: transport,
 		// Observe the configured endpoint's response, including redirects.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
@@ -44,7 +56,7 @@ func (h *HTTP) Execute(ctx context.Context, step workflow.Step) (workflow.HTTPRe
 		if checkCtx.Err() != nil {
 			result.Reason = fmt.Sprintf("No response within %d ms", config.TimeoutMS)
 		} else {
-			result.Reason = "Request failed: " + err.Error()
+			result.Reason = limitHTTPReason("Request failed: " + err.Error())
 		}
 		return result, nil // An unreachable service is health data, not an engine failure.
 	}
@@ -58,4 +70,20 @@ func (h *HTTP) Execute(ctx context.Context, step workflow.Step) (workflow.HTTPRe
 		result.Reason = fmt.Sprintf("Expected HTTP %d; received HTTP %d", config.ExpectedStatus, response.StatusCode)
 	}
 	return result, nil
+}
+
+// Transport errors can include text from a malformed response. Bound the stored
+// reason, including its prefix and truncation marker, before it reaches history.
+func limitHTTPReason(reason string) string {
+	reason = strings.ToValidUTF8(reason, "\uFFFD")
+	if len(reason) <= maxHTTPReasonBytes {
+		return reason
+	}
+	const suffix = "... [truncated]"
+	end := maxHTTPReasonBytes - len(suffix)
+	// Back up if the byte limit would split a multibyte character.
+	for !utf8.RuneStart(reason[end]) {
+		end--
+	}
+	return reason[:end] + suffix
 }
