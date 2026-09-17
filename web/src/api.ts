@@ -35,6 +35,7 @@ export type Run = {
   workflowId: string;
   workflowName: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'interrupted';
+  finalSaveFailed?: boolean;
   createdAt: string;
   startedAt?: string;
   finishedAt?: string;

@@ -17,7 +17,7 @@ import (
 	"patchbay/internal/workflow"
 )
 
-// New uses the caller-owned database for history reads, including active runs.
+// New reads saved history, overlaying retained results whose final save failed.
 func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, webDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +71,9 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 			writeError(w, http.StatusInternalServerError, "could not load run history")
 			return
 		}
+		for i := range runs {
+			runs[i] = preferUnsavedRun(runs[i], runner)
+		}
 		writeJSON(w, http.StatusOK, runs)
 	})
 	mux.HandleFunc("GET /api/runs/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +90,7 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 			writeError(w, http.StatusInternalServerError, "could not load run")
 			return
 		}
-		writeJSON(w, http.StatusOK, run)
+		writeJSON(w, http.StatusOK, preferUnsavedRun(run, runner))
 	})
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "API endpoint not found")
@@ -110,6 +113,15 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 		w.Header().Set("Cache-Control", "no-store")
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// Keep database errors, list membership/order, and normal saved history intact.
+// An unsaved result is available only until restart or memory-history eviction.
+func preferUnsavedRun(saved engine.Run, runner *engine.Runner) engine.Run {
+	if live, ok := runner.Get(saved.ID); ok && live.FinalSaveFailed {
+		return live
+	}
+	return saved
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

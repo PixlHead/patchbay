@@ -40,6 +40,8 @@ type Run struct {
 	StartedAt    time.Time  `json:"startedAt,omitzero"` // Zero until started; omit it from queued JSON.
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 	Steps        []StepRun  `json:"steps"`
+	// Memory-only warning after final-save retries fail; independent of execution status.
+	FinalSaveFailed bool `json:"finalSaveFailed,omitempty"`
 }
 
 // ExecuteStep is a function dependency, letting engine tests use a controlled
@@ -289,6 +291,7 @@ func (r *Runner) finishRun(ctx context.Context, run Run, status string) Run {
 	}
 	// Retry only this completed snapshot, never the actions that produced it.
 	if err := r.saveFinalRun(ctx, run); err != nil {
+		run.FinalSaveFailed = true
 		slog.Error("could not save final run", "run_id", run.ID, "status", run.Status, "error", err)
 	}
 	return run

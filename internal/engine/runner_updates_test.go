@@ -91,6 +91,7 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 		{"after first step", 2, false, 3, 1, "failed"},
 		{"progress and final save", 2, true, 5, 1, "failed"},
 		{"final save only", 5, false, 6, 2, "succeeded"},
+		{"all final saves fail", 5, true, 7, 2, "succeeded"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			writes, executed := 0, 0
@@ -119,7 +120,13 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 			if writes != test.wantWrites || executed != test.wantExecuted || finished.Status != test.wantStatus {
 				t.Fatalf("got %d saves, %d executions, status %s", writes, executed, finished.Status)
 			}
-			if !reflect.DeepEqual(lastAttempt, finished) || finished.FinishedAt == nil || len(runner.busyWorkflows) != 0 {
+			if finished.FinalSaveFailed != test.keepFailing || lastAttempt.FinalSaveFailed {
+				t.Fatal("save warning must reflect exhausted retries, independently of execution status")
+			}
+			// The warning is attached after the last save attempt, only in memory.
+			attempted := finished
+			attempted.FinalSaveFailed = false
+			if !reflect.DeepEqual(lastAttempt, attempted) || finished.FinishedAt == nil || len(runner.busyWorkflows) != 0 {
 				t.Fatal("final save was not attempted or the active slot was not released")
 			}
 			for i, step := range finished.Steps {
@@ -321,7 +328,7 @@ func TestCloseBoundsActiveAndQueuedFinalSaves(t *testing.T) {
 			t.Fatalf("shutdown extended its budget: elapsed=%s attempts=%v", time.Since(started), attempts)
 		}
 		for _, run := range runner.List() {
-			if run.Status != "canceled" || run.FinishedAt == nil {
+			if run.Status != "canceled" || run.FinishedAt == nil || !run.FinalSaveFailed {
 				t.Fatalf("shutdown did not finish cancellation: %+v", run)
 			}
 		}

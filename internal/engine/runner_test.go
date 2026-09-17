@@ -125,9 +125,18 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 }
 
 func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
+	finalSaves := 0
 	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		return workflow.HTTPResult{Healthy: true}, nil
-	}, nil, nil)
+	}, nil, func(_ context.Context, run Run) error {
+		if run.Status == "succeeded" {
+			finalSaves++
+			if finalSaves <= 3 { // The first run exhausts its final-save attempts.
+				return errors.New("storage unavailable")
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +155,10 @@ func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
 		if i == 0 {
 			first = run.ID
 		}
-		awaitRun(t, runner, run.ID)
+		finished := awaitRun(t, runner, run.ID)
+		if finished.FinalSaveFailed != (i == 0) {
+			t.Fatal("only the first run should have an unsaved result")
+		}
 	}
 	if len(runner.List()) != 100 {
 		t.Fatal("history bound was not enforced")

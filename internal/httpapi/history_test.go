@@ -208,7 +208,7 @@ func TestHistoryRecoversAfterFinalSaveFailure(t *testing.T) {
 	if !reflect.DeepEqual(finalAttempts[0], finalAttempts[1]) {
 		t.Fatal("retry changed the completed run snapshot")
 	}
-	if detail.ID != started.ID || detail.FinishedAt == nil || finalAttempts[0].FinishedAt == nil || detail.FinishedAt.UnixMilli() != finalAttempts[0].FinishedAt.UnixMilli() || len(detail.Steps) != 1 {
+	if detail.ID != started.ID || detail.FinalSaveFailed || detail.FinishedAt == nil || finalAttempts[0].FinishedAt == nil || detail.FinishedAt.UnixMilli() != finalAttempts[0].FinishedAt.UnixMilli() || len(detail.Steps) != 1 {
 		t.Fatalf("API lost the original run identity or finish time: %+v", detail)
 	}
 	step := detail.Steps[0]
@@ -223,5 +223,110 @@ func TestHistoryRecoversAfterFinalSaveFailure(t *testing.T) {
 	}
 	if response.Code != http.StatusOK || !reflect.DeepEqual(listed, []engine.Run{detail}) {
 		t.Fatalf("list and detail history disagree after recovery: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestHistoryShowsUnsavedFinalResultWithoutHidingReadFailures(t *testing.T) {
+	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
+	older := historyRun("older", time.Now().UTC().Add(-time.Hour).Truncate(time.Millisecond))
+	if err := store.CreateRun(context.Background(), db, older, testDefinitions()[0]); err != nil {
+		t.Fatal(err)
+	}
+	// Leave reads/progress writes working, but reject every final save.
+	const privateError = "forced final save failure: private storage detail"
+	_, err := db.ExecContext(context.Background(), `CREATE TRIGGER reject_final_save
+        BEFORE UPDATE OF status ON runs WHEN NEW.status = 'succeeded'
+        BEGIN SELECT RAISE(ABORT, 'forced final save failure: private storage detail'); END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := workflow.HTTPResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
+	finalStarted := make(chan struct{})
+	executed, attempts := 0, 0
+	runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+		executed++
+		return output, nil
+	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+		return store.CreateRun(ctx, db, run, definition)
+	}, func(ctx context.Context, run engine.Run) error {
+		if run.Status == "succeeded" {
+			attempts++
+			if attempts == 1 {
+				close(finalStarted)
+			}
+		}
+		return store.UpdateRun(ctx, db, run)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	started, err := runner.Start(testDefinitions()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finalStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("execution did not reach finalization")
+	}
+	// Execution has finished; join finalization before inspecting its observations.
+	runner.Close()
+	live, ok := runner.Get(started.ID)
+	if !ok || !live.FinalSaveFailed || live.Status != "succeeded" || live.FinishedAt == nil || attempts != 3 || executed != 1 {
+		t.Fatalf("wrong final result: %+v, attempts=%d executed=%d", live, attempts, executed)
+	}
+	if !reflect.DeepEqual(live.Steps[0].Output, &output) {
+		t.Fatal("completed output was lost")
+	}
+	saved, err := store.GetRun(context.Background(), db, started.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Status != "running" || saved.FinishedAt != nil || saved.FinalSaveFailed {
+		t.Fatalf("fixture must leave only stale progress in SQLite: %+v", saved)
+	}
+	handler := New(testDefinitions(), runner, db, t.TempDir())
+	for _, path := range []string{"/api/runs", "/api/runs/" + started.ID} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || strings.Contains(response.Body.String(), privateError) {
+			t.Fatalf("%s: result missing or storage details leaked: %d %s", path, response.Code, response.Body.String())
+		}
+		if path == "/api/runs" {
+			var listed []engine.Run
+			if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(listed, []engine.Run{live, older}) {
+				t.Fatalf("list changed order, lost saved history, or omitted the live result: %+v", listed)
+			}
+		} else {
+			var detail engine.Run
+			if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(detail, live) {
+				t.Fatalf("detail disagrees with the retained execution result: %+v", detail)
+			}
+		}
+	}
+	// Retaining a live result must not turn a broken history read into HTTP 200.
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for path, message := range map[string]string{
+		"/api/runs":               "could not load run history",
+		"/api/runs/" + started.ID: "could not load run",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		var body map[string]string
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if response.Code != http.StatusInternalServerError || !reflect.DeepEqual(body, map[string]string{"error": message}) {
+			t.Fatalf("%s: read failure was hidden: %d %s", path, response.Code, response.Body.String())
+		}
 	}
 }

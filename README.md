@@ -7,8 +7,9 @@ The M0 skeleton is gaining M1 persistence and concurrency. Steps within a run
 execute sequentially; by default, two different workflows can run at once,
 with ten more waiting in a first-in, first-out (FIFO) queue.
 Run snapshots, step progress, and completed results are saved in SQLite. The
-frontend displays the latest 100 saved runs across workflows, including earlier
-server sessions. Workflow definitions live in JSON files and are loaded at startup.
+frontend displays the latest 100 runs across workflows, including saved history
+from earlier server sessions. If a final save fails, a retained in-memory result
+appears with a warning. Workflow definitions live in JSON files and are loaded at startup.
 
 ## Start with Docker
 
@@ -155,8 +156,8 @@ A full queue returns HTTP 429; rejected starts are not saved as executions.
 Queued runs are saved before acceptance and appear in history with their creation
 time and no start time. Promotion is saved before the first step executes.
 The frontend shows **Queued** while waiting. The runner retains both queued and
-running entries when trimming memory; the history API still lists the latest
-100 saved runs from SQLite.
+running entries when trimming memory; the history API lists the latest 100 runs
+from SQLite, replacing stale snapshots with retained unsaved final results when available.
 
 Shutdown stops queue promotion, cancels active and waiting runs, and waits for
 cleanup. A canceled waiting run has skipped steps and no start time. Queued-run
@@ -291,8 +292,8 @@ and the remaining environment limitations.
 | `GET /api/health` | App readiness, not monitored-service health |
 | `GET /api/workflows` | Loaded workflow definitions |
 | `POST /api/workflows/{id}/runs` | `202` with a run ID and `Location` header |
-| `GET /api/runs` | Latest 100 saved runs across workflows, newest first |
-| `GET /api/runs/{id}` | Saved run and step results, including runs from before restart |
+| `GET /api/runs` | Latest 100 runs across workflows, newest first; retained unsaved final results include a warning |
+| `GET /api/runs/{id}` | Saved run and step results, or a retained unsaved final result with a warning |
 
 Starting a run requires an empty body and `Content-Type: application/json`:
 
@@ -381,16 +382,29 @@ If a progress save fails, the runner logs the error with the run ID, stops later
 steps, and saves the terminal state using that same final-save retry policy.
 Completed step outputs are preserved; steps that never executed are skipped.
 If all final-save attempts fail or time runs out, the failure is logged and
-SQLite retains its last saved snapshot. Memory keeps the latest result, but the
-API still reads SQLite, so the UI can show stale progress until startup marks it
-interrupted. Explicit API/UI reporting of this remaining failure is a follow-up.
+SQLite retains its last saved snapshot. While the completed result remains in
+the runner's memory history, both history endpoints return it with
+`finalSaveFailed: true`. Execution status, step outputs, errors, and finish times
+are preserved. The flag is separate from execution success: a successful run
+still appears as **Completed**, with **Final result not saved** in the history
+list and a warning in its details. Raw storage errors stay in server logs.
+
+This warning and result are temporary; they use the existing bounded memory
+history rather than an unbounded collection of failed saves. Eviction or a server
+restart loses them. After eviction, the API again returns SQLite's last snapshot;
+on restart, unfinished saved records become interrupted as described below.
+Reloading the browser alone does not clear the server's memory. No database
+migration or background save-recovery loop is added by this warning.
 External actions are never retried because a database write failed.
 
-Both history endpoints now read SQLite using the request context and a
-five-second timeout. The list returns the newest 100 runs across workflows;
+Both history endpoints read SQLite using the request context and a
+five-second timeout, then overlay retained results whose final save failed.
+The overlay preserves list membership and order; normally saved runs continue
+to come from SQLite. The list returns the newest 100 runs across workflows;
 the frontend filters that list for the selected workflow. Older runs remain in
 the database and can be fetched by ID. An empty list is `[]`, a missing ID returns
-404, and a database read failure returns 500 with details in server logs.
+404, and a database read failure returns 500 with details in server logs, even
+when a result is available in memory. The overlay does not hide read failures.
 
 Restarting with the same database preserves saved history. Native development
 uses `data/patchbay.db`; Docker uses its named volume, so those installations

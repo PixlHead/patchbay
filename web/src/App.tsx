@@ -187,9 +187,9 @@ function WorkflowPage({
             <p>Choose an example, run its checks, and explore what happened.</p>
           </div>
           <div className="memory-note">
-            Saved history
+            Run history
             <br />
-            <span>Latest 100 runs · Kept across restarts</span>
+            <span>Latest 100 runs · Saved results survive restarts</span>
           </div>
         </aside>
 
@@ -321,6 +321,9 @@ function WorkflowPage({
                             <small>
                               Run {run.id.slice(0, 8)} <span>→</span>
                             </small>
+                            {run.finalSaveFailed && (
+                              <span className="save-warning-label">Final result not saved</span>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -362,6 +365,12 @@ function RunDetails({ run }: { run: Run }) {
               : ''}
         </span>
       </div>
+      {run.finalSaveFailed && (
+        <p className="error-banner save-warning" role="alert">
+          Execution finished, but its final result could not be saved. This result is temporary and
+          may be lost when Patchbay restarts or clears older runs from memory.
+        </p>
+      )}
       {run.steps.map((step) => (
         <StepResult key={step.id} step={step} />
       ))}

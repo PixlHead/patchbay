@@ -184,3 +184,53 @@ for (const status of ['queued', 'canceled', 'interrupted']) {
     }
   });
 }
+
+test('an unsaved final result keeps its execution status and shows a warning', async ({ page }) => {
+  const unsaved: Run = {
+    id: 'unsaved-final-result',
+    workflowId: 'browser-checks',
+    workflowName: 'Browser checks',
+    status: 'succeeded',
+    finalSaveFailed: true,
+    createdAt: '2025-01-02T12:00:00Z',
+    startedAt: '2025-01-02T12:00:00Z',
+    finishedAt: '2025-01-02T12:00:01Z',
+    steps: [
+      {
+        id: 'healthy',
+        name: 'Expected response',
+        status: 'succeeded',
+        output: {
+          healthy: true,
+          url: 'http://service.invalid/health',
+          expectedStatus: 200,
+          statusCode: 200,
+          durationMs: 42,
+          reason: 'Received expected HTTP 200',
+        },
+      },
+    ],
+  };
+  const saved: Run = { ...unsaved, id: 'saved-result', finalSaveFailed: undefined };
+  await page.route('**/api/runs', (route) => route.fulfill({ json: [unsaved, saved] }));
+  await page.goto('/');
+  const results = page.getByRole('region', { name: 'Run results' });
+  await expect(results.getByText('Completed', { exact: true })).toBeVisible();
+  await expect(results.getByText('Healthy', { exact: true })).toBeVisible();
+  await expect(results.getByText('Received expected HTTP 200', { exact: true })).toBeVisible();
+  await expect(results.getByRole('alert')).toContainText('its final result could not be saved');
+  await expect(results.getByRole('alert')).toContainText(
+    'restarts or clears older runs from memory',
+  );
+  await expect(page.getByText('Final result not saved', { exact: true })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
+
+  // Switching runs must not carry the warning over to a saved result.
+  await page.getByRole('button', { name: /Run saved-re/ }).click();
+  await expect(results.getByRole('alert')).toHaveCount(0);
+  await expect(results.getByText('Completed', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /Run unsaved-/ }).click();
+  await expect(results.getByRole('alert')).toBeVisible();
+  await page.reload(); // A browser reload does not clear the server's retained result.
+  await expect(results.getByRole('alert')).toBeVisible();
+});
