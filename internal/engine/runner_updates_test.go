@@ -39,6 +39,9 @@ func TestRunSavesProgressAndCompletion(t *testing.T) {
 			}
 			finished := awaitRun(t, runner, started.ID)
 			runner.Close()
+			if finished.Error != "" {
+				t.Fatalf("execution outcome alone must not add a run-level storage error: %q", finished.Error)
+			}
 			want := [][3]string{
 				{"running", "running", "pending"},
 				{"running", "succeeded", "pending"},
@@ -86,12 +89,15 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 		wantWrites   int
 		wantExecuted int
 		wantStatus   string
+		wantError    string
 	}{
-		{"before first step", 1, false, 2, 0, "failed"},
-		{"after first step", 2, false, 3, 1, "failed"},
-		{"progress and final save", 2, true, 5, 1, "failed"},
-		{"final save only", 5, false, 6, 2, "succeeded"},
-		{"all final saves fail", 5, true, 7, 2, "succeeded"},
+		{"before first step", 1, false, 2, 0, "failed", `Could not save progress before step "One". Execution stopped. Check server logs.`},
+		{"after first step", 2, false, 3, 1, "failed", `Could not save the result of step "One". Execution stopped. Check server logs.`},
+		{"before second step", 3, false, 4, 1, "failed", `Could not save progress before step "Two". Execution stopped. Check server logs.`},
+		{"after last step", 4, false, 5, 2, "failed", `Could not save the result of step "Two". Execution stopped. Check server logs.`},
+		{"progress and final save", 2, true, 5, 1, "failed", `Could not save the result of step "One". Execution stopped. Check server logs.`},
+		{"final save only", 5, false, 6, 2, "succeeded", ""},
+		{"all final saves fail", 5, true, 7, 2, "succeeded", ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			writes, executed := 0, 0
@@ -120,6 +126,9 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 			if writes != test.wantWrites || executed != test.wantExecuted || finished.Status != test.wantStatus {
 				t.Fatalf("got %d saves, %d executions, status %s", writes, executed, finished.Status)
 			}
+			if finished.Error != test.wantError {
+				t.Fatalf("got run error %q, want %q", finished.Error, test.wantError)
+			}
 			if finished.FinalSaveFailed != test.keepFailing || lastAttempt.FinalSaveFailed {
 				t.Fatal("save warning must reflect exhausted retries, independently of execution status")
 			}
@@ -131,7 +140,7 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 			}
 			for i, step := range finished.Steps {
 				if i < executed {
-					if step.Status != "succeeded" || step.Output == nil || step.Output.StatusCode != 200 || step.FinishedAt == nil {
+					if step.Status != "succeeded" || step.Error != "" || step.Output == nil || step.Output.StatusCode != 200 || step.FinishedAt == nil {
 						t.Fatalf("completed output was lost: %+v", step)
 					}
 				} else if step.Status != "skipped" || step.StartedAt != nil || step.FinishedAt != nil {
@@ -142,8 +151,42 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 	}
 }
 
+func TestProgressSaveFailurePreservesExecutionError(t *testing.T) {
+	var lastAttempt Run
+	executed := 0
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+		executed++
+		return workflow.HTTPResult{}, errors.New("executor failed")
+	}, nil, func(_ context.Context, run Run) error {
+		lastAttempt = run
+		if run.Status == "running" && run.Steps[0].Status == "failed" {
+			return errors.New("private storage detail")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runner.Close()
+	started, err := runner.Start(example())
+	if err != nil {
+		t.Fatal(err)
+	}
+	finished := awaitRun(t, runner, started.ID)
+	runner.Close()
+	if finished.Status != "failed" || finished.Error != `Could not save the result of step "One". Execution stopped. Check server logs.` || finished.FinalSaveFailed {
+		t.Fatalf("wrong run failure: %+v", finished)
+	}
+	if executed != 1 || finished.Steps[0].Status != "failed" || finished.Steps[0].Error != "executor failed" || finished.Steps[1].Status != "skipped" {
+		t.Fatalf("execution failure was lost or later work executed: %+v", finished.Steps)
+	}
+	if !reflect.DeepEqual(lastAttempt, finished) {
+		t.Fatal("final save did not include both the run and step errors")
+	}
+}
+
 func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
-	for _, phase := range []string{"saving", "executing"} {
+	for _, phase := range []string{"saving step start", "saving step result", "executing"} {
 		t.Run(phase, func(t *testing.T) {
 			begun := make(chan struct{})
 			finalBegun := make(chan struct{})
@@ -152,12 +195,15 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 			executed := 0
 			runner, err := New(2, 0, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
 				executed++
+				if phase == "saving step result" {
+					return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
+				}
 				close(begun)
 				<-ctx.Done()
 				return workflow.HTTPResult{}, ctx.Err()
 			}, nil, func(ctx context.Context, run Run) error {
 				if run.Status == "running" {
-					if phase == "saving" {
+					if phase == "saving step start" || (phase == "saving step result" && run.Steps[0].Status == "succeeded") {
 						close(begun)
 						<-ctx.Done()
 						return ctx.Err()
@@ -226,9 +272,16 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 			if !reflect.DeepEqual(saved, finished) || saved.Status != "canceled" || saved.FinishedAt == nil || saved.Steps[1].Status != "skipped" {
 				t.Fatalf("wrong saved cancellation: %+v", saved)
 			}
-			if phase == "saving" {
+			if saved.Error != "" || saved.FinalSaveFailed {
+				t.Fatal("shutdown cancellation must not be reported as a storage failure")
+			}
+			if phase == "saving step start" {
 				if executed != 0 || saved.Steps[0].Status != "skipped" || saved.Steps[0].StartedAt != nil {
 					t.Fatal("a canceled pre-execution save allowed the step to run")
+				}
+			} else if phase == "saving step result" {
+				if executed != 1 || saved.Steps[0].Status != "succeeded" || saved.Steps[0].Output == nil || saved.Steps[0].Error != "" {
+					t.Fatal("cancellation during the result save lost the completed output")
 				}
 			} else if executed != 1 || saved.Steps[0].Status != "canceled" || saved.Steps[0].FinishedAt == nil || saved.Steps[0].Error == "" {
 				t.Fatal("the interrupted step was not recorded as canceled")

@@ -185,6 +185,69 @@ for (const status of ['queued', 'canceled', 'interrupted']) {
   });
 }
 
+for (const finalSaveFailed of [false, true]) {
+  test(`progress-save failure explains the stopped run (final save failed: ${finalSaveFailed})`, async ({
+    page,
+  }) => {
+    const failed: Run = {
+      id: 'progress-failure',
+      workflowId: 'browser-checks',
+      workflowName: 'Browser checks',
+      status: 'failed',
+      error:
+        'Could not save the result of step "Expected response". Execution stopped. Check server logs.',
+      finalSaveFailed,
+      createdAt: '2025-01-02T12:00:00Z',
+      startedAt: '2025-01-02T12:00:00Z',
+      finishedAt: '2025-01-02T12:00:01Z',
+      steps: [
+        {
+          id: 'healthy',
+          name: 'Expected response',
+          status: 'succeeded',
+          output: {
+            healthy: true,
+            url: 'http://service.invalid/health',
+            expectedStatus: 200,
+            statusCode: 200,
+            durationMs: 42,
+            reason: 'Received expected HTTP 200',
+          },
+        },
+        { id: 'skipped', name: 'Later check', status: 'skipped' },
+      ],
+    };
+    const stepFailure: Run = {
+      ...failed,
+      id: 'step-failure',
+      error: undefined,
+      finalSaveFailed: undefined,
+      steps: [{ id: 'failed', name: 'Failed check', status: 'failed', error: 'Executor failed.' }],
+    };
+    await page.route('**/api/runs', (route) => route.fulfill({ json: [failed, stepFailure] }));
+    await page.goto('/');
+    const results = page.getByRole('region', { name: 'Run results' });
+    const reason = results.getByRole('alert').filter({ hasText: 'Could not save the result' });
+    await expect(reason).toHaveText(failed.error!);
+    await expect(results.getByText('Failed', { exact: true })).toBeVisible();
+    await expect(results.getByText('Healthy', { exact: true })).toBeVisible();
+    await expect(results.getByText('Received expected HTTP 200', { exact: true })).toBeVisible();
+    await expect(results.getByText('Skipped', { exact: true })).toBeVisible();
+    await expect(results.getByRole('alert')).toHaveCount(finalSaveFailed ? 2 : 1);
+    if (finalSaveFailed) {
+      await expect(
+        results.getByRole('alert').filter({ hasText: 'its final result' }),
+      ).toContainText('This result is temporary');
+    }
+
+    await page.reload();
+    await expect(reason).toHaveText(failed.error!);
+    await page.getByRole('button', { name: /Run step-fai/ }).click();
+    await expect(results.getByRole('alert')).toHaveCount(0);
+    await expect(results.getByText('Executor failed.', { exact: true })).toBeVisible();
+  });
+}
+
 test('an unsaved final result keeps its execution status and shows a warning', async ({ page }) => {
   const unsaved: Run = {
     id: 'unsaved-final-result',

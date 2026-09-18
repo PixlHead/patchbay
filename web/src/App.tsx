@@ -365,6 +365,11 @@ function RunDetails({ run }: { run: Run }) {
               : ''}
         </span>
       </div>
+      {run.error && (
+        <p className="error-banner run-error" role="alert">
+          {run.error}
+        </p>
+      )}
       {run.finalSaveFailed && (
         <p className="error-banner save-warning" role="alert">
           Execution finished, but its final result could not be saved. This result is temporary and

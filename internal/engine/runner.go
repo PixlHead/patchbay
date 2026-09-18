@@ -230,6 +230,8 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 			status = "failed"
 			if r.ctx.Err() != nil {
 				status = "canceled"
+			} else {
+				run.Error = fmt.Sprintf("Could not save progress before step %q. Execution stopped. Check server logs.", step.Name)
 			}
 			// The executor never started; finalization will mark this step skipped.
 			stepRun.Status, stepRun.StartedAt = "pending", nil
@@ -259,6 +261,8 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 			status = "failed"
 			if r.ctx.Err() != nil {
 				status = "canceled"
+			} else {
+				run.Error = fmt.Sprintf("Could not save the result of step %q. Execution stopped. Check server logs.", step.Name)
 			}
 			// Preserve completed outputs, but do not execute any more steps.
 			break

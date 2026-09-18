@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -59,6 +60,122 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 	}
 	if len(runner.List()) != 0 {
 		t.Fatal("reading saved history repopulated the execution runner")
+	}
+}
+
+func TestProgressSaveFailureReasonSurvivesDatabaseReopen(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		stepStatus   string
+		wantExecuted int
+		wantError    string
+	}{
+		{"before step", "running", 0, `Could not save progress before step "Check health". Execution stopped. Check server logs.`},
+		{"after step", "succeeded", 1, `Could not save the result of step "Check health". Execution stopped. Check server logs.`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "history.db")
+			db := openTestDB(t, path)
+			// Reject a real step progress write. The run's terminal status lets its
+			// final save succeed even when it includes that same completed step.
+			const privateError = "forced progress save failure: private storage detail"
+			_, err := db.ExecContext(context.Background(), fmt.Sprintf(`CREATE TRIGGER reject_progress_save
+                BEFORE UPDATE OF status ON run_steps
+                WHEN NEW.step_id = 'health' AND NEW.status = '%s'
+                    AND (SELECT status FROM runs WHERE id = NEW.run_id) = 'running'
+                BEGIN SELECT RAISE(ABORT, 'forced progress save failure: private storage detail'); END`, test.stepStatus))
+			if err != nil {
+				t.Fatal(err)
+			}
+			definitions := testDefinitions()
+			later := definitions[0].Steps[0]
+			later.ID, later.Name = "later", "Check later"
+			definitions[0].Steps = append(definitions[0].Steps, later)
+			output := workflow.HTTPResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
+			executed := 0
+			var progressError error
+			finalSaved := make(chan error, 3)
+			runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+				executed++
+				return output, nil
+			}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+				return store.CreateRun(ctx, db, run, definition)
+			}, func(ctx context.Context, run engine.Run) error {
+				saveError := store.UpdateRun(ctx, db, run)
+				if run.Status == "running" && saveError != nil {
+					progressError = saveError
+				}
+				if run.FinishedAt != nil {
+					finalSaved <- saveError
+				}
+				return saveError
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer runner.Close()
+			started, err := runner.Start(definitions[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-finalSaved:
+				if err != nil {
+					t.Fatalf("final save did not recover from the progress failure: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("run did not reach its final save")
+			}
+			runner.Close() // Join the callbacks before inspecting their observations.
+			if progressError == nil || !strings.Contains(progressError.Error(), privateError) || executed != test.wantExecuted {
+				t.Fatalf("wrong failure or extra actions: error=%v executed=%d", progressError, executed)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			db = openTestDB(t, path)
+			emptyRunner, err := engine.New(1, 0, nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer emptyRunner.Close()
+			handler := New(definitions, emptyRunner, db, t.TempDir())
+			for _, route := range []string{"/api/runs", "/api/runs/" + started.ID} {
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
+				if response.Code != http.StatusOK || strings.Contains(response.Body.String(), privateError) {
+					t.Fatalf("%s: history missing or private storage details leaked: %d %s", route, response.Code, response.Body.String())
+				}
+				var saved engine.Run
+				if route == "/api/runs" {
+					var listed []engine.Run
+					if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+						t.Fatal(err)
+					}
+					if len(listed) != 1 {
+						t.Fatalf("expected one saved run, got %d", len(listed))
+					}
+					saved = listed[0]
+				} else if err := json.Unmarshal(response.Body.Bytes(), &saved); err != nil {
+					t.Fatal(err)
+				}
+				if saved.ID != started.ID || saved.Status != "failed" || saved.Error != test.wantError || saved.FinalSaveFailed || saved.FinishedAt == nil || len(saved.Steps) != 2 {
+					t.Fatalf("%s: progress failure reason or final state was lost: %+v", route, saved)
+				}
+				for i, step := range saved.Steps {
+					if i < test.wantExecuted {
+						if step.Status != "succeeded" || step.Error != "" || step.StartedAt == nil || step.FinishedAt == nil || !reflect.DeepEqual(step.Output, &output) {
+							t.Fatalf("%s: completed step result was lost: %+v", route, step)
+						}
+					} else if step.Status != "skipped" || step.Error != "" || step.StartedAt != nil || step.FinishedAt != nil || step.Output != nil {
+						t.Fatalf("%s: unexecuted step was not skipped cleanly: %+v", route, step)
+					}
+				}
+			}
+			if len(emptyRunner.List()) != 0 {
+				t.Fatal("history reads repopulated the execution runner")
+			}
+		})
 	}
 }
 

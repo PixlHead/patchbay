@@ -572,6 +572,7 @@ main {
   margin-bottom: 20px;
   line-height: 1.6;
 }
+.run-error,
 .save-warning {
   margin: 0 22px 16px;
 }

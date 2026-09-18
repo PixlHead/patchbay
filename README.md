@@ -394,6 +394,10 @@ snapshot, including its original finish time and step outputs.
 If a progress save fails, the runner logs the error with the run ID, stops later
 steps, and saves the terminal state using that same final-save retry policy.
 Completed step outputs are preserved; steps that never executed are skipped.
+The run's `error` identifies the step whose start or result could not be saved
+and directs the administrator to server logs. Run details display this reason
+above the step results. A successful final save preserves it in history, even
+after a restart. Cancellation during shutdown does not add a storage-error reason.
 If all final-save attempts fail or time runs out, the failure is logged and
 SQLite retains its last saved snapshot. While the completed result remains in
 the runner's memory history, both history endpoints return it with
@@ -454,8 +458,9 @@ The workflow definition format remains at version 1.
 `engine.Run.Error` stores a run-level reason separately from each step's error.
 Create/update operations save it with the snapshot, and get/list operations
 restore it. Its JSON field is `error`, omitted when empty. The runner does not
-populate this field yet, and the frontend does not display it; that wiring is
-the next increment.
+copy raw storage errors into it: progress-save failures use a readable message,
+while each step retains its own execution error. A final-save failure alone uses
+the separate memory-only `finalSaveFailed` warning.
 
 `store.CreateRun(ctx, db, run, definition)` inserts a run, its workflow snapshot,
 and its ordered step results in one transaction. Duplicate run IDs are rejected;
