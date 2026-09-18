@@ -44,6 +44,7 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 			run, err := runner.Start(definition)
 			if err != nil {
 				code := http.StatusBadRequest
+				message := err.Error()
 				if errors.Is(err, engine.ErrWorkflowBusy) {
 					code = http.StatusConflict
 				} else if errors.Is(err, engine.ErrCapacity) {
@@ -52,8 +53,10 @@ func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, w
 					code = http.StatusServiceUnavailable
 				} else if errors.Is(err, engine.ErrRecordRun) {
 					code = http.StatusInternalServerError
+					slog.Error("could not save new run", "workflow_id", definition.ID, "error", err)
+					message = "Could not save run. Check server logs."
 				}
-				writeError(w, code, err.Error())
+				writeError(w, code, message)
 				return
 			}
 			w.Header().Set("Location", "/api/runs/"+run.ID)

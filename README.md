@@ -372,7 +372,8 @@ The server now opens SQLite before starting HTTP and closes it after the runner
 stops. Database path or migration errors prevent startup. The runner saves a new
 run and its workflow snapshot before admitting it for execution. A failed save
 returns HTTP 500, starts no steps, and consumes neither an active slot nor
-queue space.
+queue space. The client receives `Could not save run. Check server logs.`;
+the server logs the underlying storage error with the workflow ID.
 The save uses a five-second timeout tied to the runner, so ending an HTTP request
 does not cancel an accepted run. Tests can pass nil persistence callbacks for an
 in-memory runner.

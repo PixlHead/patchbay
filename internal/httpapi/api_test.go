@@ -1,11 +1,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -104,13 +106,20 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 }
 
 func TestRunSaveFailureReturnsServerError(t *testing.T) {
+	// The app's default slog handler writes through the standard logger.
+	// Keep this test serial and restore its output so other tests are unaffected.
+	var logs bytes.Buffer
+	previousOutput := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previousOutput)
+	storageError := errors.New("write /private/patchbay-test.db: disk full")
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	executed := false
 	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
 		executed = true
 		return workflow.HTTPResult{}, nil
 	}, func(context.Context, engine.Run, workflow.Definition) error {
-		return errors.New("storage unavailable")
+		return storageError
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +133,18 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 	runner.Close()
 	if response.Code != http.StatusInternalServerError || response.Header().Get("Location") != "" {
 		t.Fatalf("expected a rejected run with HTTP 500, got %d: %s", response.Code, response.Body.String())
+	}
+	var body map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if response.Header().Get("Content-Type") != "application/json" || len(body) != 1 || body["error"] != "Could not save run. Check server logs." {
+		t.Fatalf("expected a fixed JSON error without storage details, got %s", response.Body.String())
+	}
+	for _, detail := range []string{"ERROR", "could not save new run", "workflow_id=test-workflow", storageError.Error()} {
+		if !strings.Contains(logs.String(), detail) {
+			t.Fatalf("server log is missing %q: %s", detail, logs.String())
+		}
 	}
 	if executed || len(runner.List()) != 0 {
 		t.Fatal("a run was executed or accepted despite its save failing")
