@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,6 +13,46 @@ func validDefinition() Definition {
 	return Definition{SchemaVersion: 1, ID: "example", Name: "Example", Steps: []Step{
 		{ID: "check", Name: "Check", Type: "http.check", Config: HTTPConfig{URL: "http://localhost/health", ExpectedStatus: 200, TimeoutMS: 1000}},
 	}}
+}
+
+func TestLoadDefinitionSizeLimit(t *testing.T) {
+	want := validDefinition()
+	want.Description = "Service status — café" // The limit counts bytes, not characters.
+	encoded, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		size int
+	}{
+		{"ordinary file", len(encoded)},
+		{"one byte below limit", maxDefinitionBytes - 1},
+		{"exact limit", maxDefinitionBytes},
+		{"one byte over limit", maxDefinitionBytes + 1},
+		{"much larger file", 16 * maxDefinitionBytes},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "workflow.json")
+			// Trailing JSON whitespace makes every fixture valid apart from its size.
+			// The one-byte-over case also catches silently accepting a limited prefix.
+			content := string(encoded) + strings.Repeat(" ", test.size-len(encoded))
+			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			definitions, err := Load(directory)
+			if test.size > maxDefinitionBytes {
+				if err == nil || err.Error() != path+": definition exceeds 64 KiB" || definitions != nil {
+					t.Fatalf("expected size rejection with the file path, got definitions=%+v error=%v", definitions, err)
+				}
+				return
+			}
+			if err != nil || !reflect.DeepEqual(definitions, []Definition{want}) {
+				t.Fatalf("valid %d-byte workflow did not load unchanged: definitions=%+v error=%v", test.size, definitions, err)
+			}
+		})
+	}
 }
 
 func TestValidate(t *testing.T) {

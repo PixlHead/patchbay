@@ -13,6 +13,8 @@ import (
 	"strings"
 )
 
+const maxDefinitionBytes = 64 * 1024
+
 type Definition struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	ID            string `json:"id"`
@@ -92,11 +94,17 @@ func Load(directory string) ([]Definition, error) {
 			continue
 		}
 		path := filepath.Join(directory, entry.Name())
-		data, err := os.ReadFile(path)
+		file, err := os.Open(path)
 		if err != nil {
 			return nil, err
 		}
-		if len(data) > 64*1024 {
+		// One extra byte detects oversized files without reading them in full.
+		data, err := io.ReadAll(io.LimitReader(file, maxDefinitionBytes+1))
+		file.Close() // Close each file now, rather than deferring across the loop.
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > maxDefinitionBytes {
 			return nil, fmt.Errorf("%s: definition exceeds 64 KiB", path)
 		}
 		var d Definition

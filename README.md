@@ -265,6 +265,10 @@ workflows, invalid HTTP status codes, and out-of-range timeouts. Steps must numb
 1–20 and timeouts must be 100–30,000 ms. An invalid file prevents startup and the
 error identifies the file and problem. No workflow is executed during loading.
 
+Each workflow JSON file may contain up to 64 KiB, including whitespace. The
+loader reads at most 64 KiB plus one byte to detect oversized files, then closes
+the file before validation. Files exactly at the limit remain supported.
+
 M0's `steps` array is execution order. There are no graph edges or parallel branches
 yet. The version field gives us a place to introduce schema changes deliberately
 as the later graph model develops.
