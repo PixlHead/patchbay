@@ -224,6 +224,12 @@ Response time measures receipt of HTTP response headers. The executor does not
 download or store response bodies. Redirects are reported as responses rather
 than followed, and normal HTTPS certificate validation remains enabled.
 
+HTTP and HTTPS checks connect directly to the configured endpoint. They ignore
+`HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (including lowercase variants) in the
+server's environment, so proxy settings do not change the route being checked.
+The endpoint must be reachable directly from the Go process or container;
+configurable proxy support is not currently available.
+
 HTTP checks configure a 64 KiB response-header limit on their transport; Go
 applies the corresponding protocol-specific accounting for HTTP/1 and HTTP/2.
 Oversized or malformed responses produce an unhealthy result rather than an

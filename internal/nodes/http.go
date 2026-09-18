@@ -22,9 +22,12 @@ type HTTP struct {
 }
 
 func NewHTTP() *HTTP {
-	// Keep Go's connection, proxy, TLS, and HTTP/2 defaults without changing
+	// Keep Go's connection, TLS, and HTTP/2 defaults without changing
 	// the shared transport used by other clients.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Health checks connect directly to their targets, regardless of the
+	// server's HTTP_PROXY, HTTPS_PROXY, or NO_PROXY environment settings.
+	transport.Proxy = nil
 	transport.MaxResponseHeaderBytes = maxHTTPHeaderBytes
 	return &HTTP{client: &http.Client{
 		Transport: transport,
