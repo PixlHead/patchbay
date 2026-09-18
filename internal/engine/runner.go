@@ -252,16 +252,23 @@ func (r *Runner) run(id string, definition workflow.Definition) {
 		} else {
 			stepRun.Status, stepRun.Output = "succeeded", &output
 		}
+		// Earlier steps already succeeded to reach this point. Shutdown cannot
+		// undo a successful final step, even if its progress save is canceled.
+		allStepsSucceeded := err == nil && i == len(definition.Steps)-1
 		if r.ctx.Err() != nil {
 			// Finalization saves these results with a fresh cleanup context.
-			status = "canceled"
+			if !allStepsSucceeded {
+				status = "canceled"
+			}
 			break
 		}
 		if err := r.saveRunUpdate(r.ctx, run); err != nil {
-			status = "failed"
 			if r.ctx.Err() != nil {
-				status = "canceled"
+				if !allStepsSucceeded {
+					status = "canceled"
+				}
 			} else {
+				status = "failed"
 				run.Error = fmt.Sprintf("Could not save the result of step %q. Execution stopped. Check server logs.", step.Name)
 			}
 			// Preserve completed outputs, but do not execute any more steps.

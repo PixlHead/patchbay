@@ -159,11 +159,15 @@ The frontend shows **Queued** while waiting. The runner retains both queued and
 running entries when trimming memory; the history API lists the latest 100 runs
 from SQLite, replacing stale snapshots with retained unsaved final results when available.
 
-Shutdown stops queue promotion, cancels active and waiting runs, and waits for
-cleanup. A canceled waiting run has skipped steps and no start time. Queued-run
-cleanup shares a five-second save budget. If shutdown or a save fails, startup
-marks leftover queued/running records interrupted. Automatic resumption of saved
-queued work is a later increment; this queue currently lives within one process.
+Shutdown stops queue promotion, requests cancellation of active and waiting runs,
+and waits for cleanup. A run whose final step returns successfully during
+shutdown remains **Completed**, even if shutdown cancels that step's progress
+save. Its final save uses a fresh cleanup context. If shutdown prevents remaining
+steps from executing, the run is **Canceled** and those steps are skipped. A
+canceled waiting run has skipped steps and no start time. Queued-run cleanup
+shares a five-second save budget. If shutdown or a save fails, startup marks
+leftover queued/running records interrupted. Automatic resumption of saved queued
+work is a later increment; this queue currently lives within one process.
 
 ## Explore workflow canvases
 
