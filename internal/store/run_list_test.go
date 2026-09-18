@@ -32,6 +32,7 @@ func TestListRunsOrdersAndLimitsCompleteHistory(t *testing.T) {
 	} {
 		definition, run := runFixture()
 		run.ID = entry.id
+		run.Error = "Run-level reason for " + entry.id
 		run.CreatedAt = time.UnixMilli(entry.created).UTC()
 		run.Steps[0].Output.Reason = entry.id
 		if err := CreateRun(ctx, db, run, definition); err != nil {

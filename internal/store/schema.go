@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Keep this first migration unchanged when adding later schema versions.
 // Timestamps are Unix milliseconds; NULL means a run or step has not started/finished.
@@ -39,6 +39,12 @@ CREATE TABLE run_steps (
 PRAGMA user_version = 1;
 `
 
+// Existing runs have no recorded run-level reason; leave that value empty.
+const runErrorMigration = `
+ALTER TABLE runs ADD COLUMN error TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 2;
+`
+
 func migrate(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -53,13 +59,18 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if version == schemaVersion {
 		return nil
 	}
-	if version != 0 {
+	if version != 0 && version != 1 {
 		return fmt.Errorf("unsupported database schema version %d (expected %d)", version, schemaVersion)
 	}
 
-	// The tables and version number either all commit or all roll back.
-	if _, err := tx.ExecContext(ctx, initialSchema); err != nil {
-		return fmt.Errorf("create initial database schema: %w", err)
+	// Apply all needed changes in this transaction, including on a fresh database.
+	if version == 0 {
+		if _, err := tx.ExecContext(ctx, initialSchema); err != nil {
+			return fmt.Errorf("create initial database schema: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, runErrorMigration); err != nil {
+		return fmt.Errorf("migrate database schema to version 2: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit schema migration: %w", err)

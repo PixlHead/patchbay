@@ -25,6 +25,9 @@ func TestGetRunReadsPersistedHistory(t *testing.T) {
 			}
 			defer db.Close()
 			definition, want := runFixture()
+			if state == "finished" {
+				want.Error = "Execution could not continue."
+			}
 			if state != "finished" {
 				want.Status, want.FinishedAt = "running", nil
 				for i, step := range want.Steps {
@@ -44,6 +47,7 @@ func TestGetRunReadsPersistedHistory(t *testing.T) {
 			// Another run may reuse every step ID without mixing its results in.
 			_, other := runFixture()
 			other.ID = "run-2"
+			other.Error = "Second run reason."
 			other.Steps[0].Output.Reason = "second run output"
 			if err := CreateRun(ctx, db, other, definition); err != nil {
 				t.Fatal(err)

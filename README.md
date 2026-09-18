@@ -438,19 +438,30 @@ resumed or retried. The Run button relies on the server's current admission
 check rather than treating saved statuses as proof that an execution is active.
 After review, the focused tests can be run with
 `go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
-Opening the database also applies schema version 1 from `internal/store/schema.go`.
+Opening the database also applies migrations from `internal/store/schema.go`
+up to database schema version 2. A new database applies versions 1 and 2 in one
+transaction. An existing version-1 database gains a `runs.error` text column
+with an empty default; its history is preserved.
 The `runs` table holds run metadata and a JSON copy of the workflow definition;
-`run_steps` holds ordered step results. Timestamps use Unix milliseconds. The
-tables and SQLite's `user_version` number are created in one transaction.
+`run_steps` holds ordered step results. Timestamps use Unix milliseconds.
+Schema changes and SQLite's `user_version` number are committed together.
 Reopening the current version preserves existing data; unsupported versions are
-rejected. The migration tests cover reopening, conflicts, and version rejection.
+rejected. The migration tests cover upgrading existing history, reopening,
+conflicts, and version rejection. Older Patchbay builds that only support schema
+version 1 cannot open an upgraded database; there is no automatic downgrade.
+The workflow definition format remains at version 1.
+
+`engine.Run.Error` stores a run-level reason separately from each step's error.
+Create/update operations save it with the snapshot, and get/list operations
+restore it. Its JSON field is `error`, omitted when empty. The runner does not
+populate this field yet, and the frontend does not display it; that wiring is
+the next increment.
 
 `store.CreateRun(ctx, db, run, definition)` inserts a run, its workflow snapshot,
 and its ordered step results in one transaction. Duplicate run IDs are rejected;
 a failed step insert rolls back the entire save. Missing timestamps and outputs
 are stored as SQL NULL. `createdAt` records admission; `startedAt` is absent
-until execution begins. Both columns already exist in schema version 1, so this
-change needs no migration. Updates preserve the original creation time.
+until execution begins. Updates preserve the original creation time.
 
 `store.UpdateRun(ctx, db, run)` saves execution statuses, timestamps, outputs,
 and errors together. It preserves the workflow snapshot, creation time, names,

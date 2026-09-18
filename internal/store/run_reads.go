@@ -75,8 +75,8 @@ func readRunInTx(ctx context.Context, tx *sql.Tx, id string) (engine.Run, error)
 	var created int64
 	var started, finished sql.NullInt64
 	err := tx.QueryRowContext(ctx, `SELECT id, workflow_id, workflow_name, status,
-        created_at, started_at, finished_at FROM runs WHERE id = ?`, id).
-		Scan(&run.ID, &run.WorkflowID, &run.WorkflowName, &run.Status, &created, &started, &finished)
+        created_at, started_at, finished_at, error FROM runs WHERE id = ?`, id).
+		Scan(&run.ID, &run.WorkflowID, &run.WorkflowName, &run.Status, &created, &started, &finished, &run.Error)
 	if err != nil {
 		return engine.Run{}, fmt.Errorf("read run %q: %w", id, err)
 	}

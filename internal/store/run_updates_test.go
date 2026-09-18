@@ -36,11 +36,14 @@ func TestUpdateRunSavesProgressAndPreservesWorkflow(t *testing.T) {
 	// Execution updates cannot rewrite the workflow or its original step names.
 	finished.WorkflowID, finished.WorkflowName = "edited-id", "Edited workflow"
 	finished.Steps[0].Name = "Edited step"
-	for range 2 { // Saving the same state again must still succeed.
+	// Saving the same reason again must succeed; an empty value clears it.
+	for _, message := range []string{"Execution could not continue.", "Execution could not continue.", ""} {
+		finished.Error = message
 		if err := UpdateRun(ctx, db, finished); err != nil {
 			t.Fatal(err)
 		}
 		_, expected := runFixture()
+		expected.Error = message
 		assertStoredRun(t, db, definition, expected)
 	}
 }
@@ -65,10 +68,12 @@ func TestUpdateRunRejectsMismatchedSnapshotsWithoutChangingHistory(t *testing.T)
 			}
 			defer db.Close()
 			definition, original := runFixture()
+			original.Error = "Original run reason."
 			if err := CreateRun(ctx, db, original, definition); err != nil {
 				t.Fatal(err)
 			}
 			_, update := runFixture()
+			update.Error = "Replacement run reason."
 			update.Status, update.FinishedAt = "running", nil
 			for i := range update.Steps {
 				update.Steps[i].Status = "pending"

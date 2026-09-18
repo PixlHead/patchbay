@@ -21,6 +21,7 @@ func TestCreateRunStoresSnapshotAndStepResults(t *testing.T) {
 	}
 	defer db.Close()
 	definition, run := runFixture()
+	run.Error = "Execution could not continue."
 	if err := CreateRun(ctx, db, run, definition); err != nil {
 		t.Fatal(err)
 	}
@@ -31,18 +32,21 @@ func TestCreateRunStoresSnapshotAndStepResults(t *testing.T) {
 func assertStoredRun(t *testing.T, db *sql.DB, definition workflow.Definition, run engine.Run) {
 	t.Helper()
 	ctx := context.Background()
-	var workflowID, name, status, snapshot string
+	var workflowID, name, status, snapshot, runError string
 	var created int64
 	var started, finished sql.NullInt64
 	if err := db.QueryRowContext(ctx, `SELECT workflow_id, workflow_name, status,
-        definition_json, created_at, started_at, finished_at FROM runs WHERE id = ?`, run.ID).
-		Scan(&workflowID, &name, &status, &snapshot, &created, &started, &finished); err != nil {
+        definition_json, created_at, started_at, finished_at, error FROM runs WHERE id = ?`, run.ID).
+		Scan(&workflowID, &name, &status, &snapshot, &created, &started, &finished, &runError); err != nil {
 		t.Fatal(err)
 	}
 	if workflowID != run.WorkflowID || name != run.WorkflowName || status != run.Status ||
 		created != run.CreatedAt.UnixMilli() || started.Valid != !run.StartedAt.IsZero() ||
 		(started.Valid && started.Int64 != run.StartedAt.UnixMilli()) {
 		t.Fatalf("unexpected run metadata: %s %s %s %d %v", workflowID, name, status, created, started)
+	}
+	if runError != run.Error {
+		t.Fatalf("unexpected run error: got %q, want %q", runError, run.Error)
 	}
 	if finished.Valid != (run.FinishedAt != nil) ||
 		(finished.Valid && finished.Int64 != run.FinishedAt.UnixMilli()) {

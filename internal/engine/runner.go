@@ -36,6 +36,7 @@ type Run struct {
 	WorkflowID   string     `json:"workflowId"`
 	WorkflowName string     `json:"workflowName"`
 	Status       string     `json:"status"`
+	Error        string     `json:"error,omitempty"` // Run-level reason, separate from step errors.
 	CreatedAt    time.Time  `json:"createdAt"`
 	StartedAt    time.Time  `json:"startedAt,omitzero"` // Zero until started; omit it from queued JSON.
 	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
