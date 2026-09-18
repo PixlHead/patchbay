@@ -381,9 +381,21 @@ The [modernc.org/sqlite driver](https://pkg.go.dev/modernc.org/sqlite) supports 
 existing build with CGO disabled.
 
 The server now opens SQLite before starting HTTP and closes it after the runner
-stops. Database path or migration errors prevent startup. The runner saves a new
-run and its workflow snapshot before admitting it for execution. A failed save
-returns HTTP 500, starts no steps, and consumes neither an active slot nor
+stops. Database path, migration, or write-check errors prevent startup. After
+identity validation and migration, startup performs a write check with a
+five-second context deadline before interruption cleanup or HTTP startup. It
+commits the current [`user_version`](https://sqlite.org/pragma.html#pragma_user_version) back
+to SQLite's header, exercising a real write even when history is empty. The
+version, application marker, tables, and saved runs stay unchanged. A failure
+returns `check database writeability` with the underlying storage error; the
+database closes and its ownership lock is released.
+
+This small check confirms a write can commit at startup. It does not reserve
+space for future runs or guarantee later writes will succeed; runtime save
+failures retain their existing handling.
+
+The runner saves a new run and its workflow snapshot before admitting it for
+execution. A failed save returns HTTP 500, starts no steps, and consumes neither an active slot nor
 queue space. The client receives `Could not save run. Check server logs.`;
 the server logs the underlying storage error with the workflow ID.
 The save uses a five-second timeout tied to the runner, so ending an HTTP request

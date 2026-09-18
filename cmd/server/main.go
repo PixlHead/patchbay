@@ -78,6 +78,14 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 		}
 	}()
 
+	// Opening an existing database can succeed even when it cannot commit writes.
+	writeCtx, cancelWrite := context.WithTimeout(ctx, 5*time.Second)
+	err = store.CheckWritable(writeCtx, db)
+	cancelWrite()
+	if err != nil {
+		return fmt.Errorf("check database writeability: %w", err)
+	}
+
 	// Reconcile saved history before creating a runner or accepting requests.
 	interruptionCtx, cancelInterruption := context.WithTimeout(ctx, 5*time.Second)
 	interrupted, err := store.MarkUnfinishedRunsInterrupted(interruptionCtx, db)
