@@ -14,6 +14,13 @@ func TestOpenPersistsAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	var marker int
+	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != applicationID {
+		t.Fatalf("new database was not marked as Patchbay: %d", marker)
+	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO runs
         (id, workflow_id, workflow_name, definition_json, status, created_at)
         VALUES ('run-1', 'workflow-1', 'Example', '{}', 'running', 0)`); err != nil {

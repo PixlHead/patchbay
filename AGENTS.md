@@ -88,6 +88,9 @@ introduce their infrastructure while implementing the current SQLite features.
   actions. Never infer that an uncertain external action is safe to repeat.
 - Preserve atomic run/step snapshots and existing data. Introduce deliberate
   versioned migrations when stored structure changes.
+- Verify database identity before migration or startup cleanup. Only initialize
+  an empty, unmarked database; recognize legacy v1/v2 layouts before assigning
+  Patchbay's application ID. The marker is a file-selection guard, not authentication.
 - Keep the unauthenticated prototype local, host validation enabled, and the
   JSON requirement on run-start requests. Host validation is not authentication.
 

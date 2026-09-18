@@ -60,12 +60,18 @@ func TestOpenUpgradesVersionOneWithoutChangingHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer db.Close()
-		var version int
+		var version, owner int
 		if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 			t.Fatal(err)
 		}
 		if version != schemaVersion {
 			t.Fatalf("expected schema version %d, got %d", schemaVersion, version)
+		}
+		if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&owner); err != nil {
+			t.Fatal(err)
+		}
+		if owner != applicationID {
+			t.Fatalf("legacy database was not marked as Patchbay: %d", owner)
 		}
 		// Includes the new empty error, workflow snapshot, timestamps and step results.
 		assertStoredRun(t, db, definition, original)
@@ -93,16 +99,19 @@ func TestMigrateVersionOneConflictPreservesVersionAndData(t *testing.T) {
 	if err := migrate(ctx, db); err == nil {
 		t.Fatal("expected the conflicting column to reject migration")
 	}
-	var version int
+	var version, owner int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA application_id").Scan(&owner); err != nil {
 		t.Fatal(err)
 	}
 	var message string
 	if err := db.QueryRowContext(ctx, "SELECT error FROM runs WHERE id = 'old-run'").Scan(&message); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 || message != "keep" {
-		t.Fatalf("failed migration changed existing state: version %d, error %q", version, message)
+	if version != 1 || owner != 0 || message != "keep" {
+		t.Fatalf("failed migration changed existing state: version %d, application ID %d, error %q", version, owner, message)
 	}
 }
 

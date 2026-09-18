@@ -459,6 +459,23 @@ conflicts, and version rejection. Older Patchbay builds that only support schema
 version 1 cannot open an upgraded database; there is no automatic downgrade.
 The workflow definition format remains at version 1.
 
+Before migration or startup cleanup, Patchbay checks SQLite's
+[`application_id`](https://sqlite.org/pragma.html#pragma_application_id) marker
+and the expected table layout. New databases must be empty and unmarked.
+Unmarked version-1 and version-2 files are recognized by their two tables,
+column definitions, primary keys, unique step positions, and cascading foreign
+key. Extra user-defined schema objects prevent adoption of an unmarked file;
+SQLite's internal indexes and statistics are allowed.
+
+A recognized legacy file receives the Patchbay marker (`0x50544259`, "PTBY")
+in the same transaction as any needed migration. This header marker leaves the
+database schema version at 2. Marked files still have their table layout checked;
+additional indexes and triggers on Patchbay's tables are allowed. A foreign
+marker, unsupported version, or unrecognized layout prevents startup before
+Patchbay changes the database. Choose a separate database path for a new instance.
+Recognition protects against mistakenly selecting an unrelated database; it
+does not prove the origin of a file with an identical layout or check data integrity.
+
 `engine.Run.Error` stores a run-level reason separately from each step's error.
 Create/update operations save it with the snapshot, and get/list operations
 restore it. Its JSON field is `error`, omitted when empty. The runner does not
