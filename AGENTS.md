@@ -91,6 +91,8 @@ introduce their infrastructure while implementing the current SQLite features.
 - Verify database identity before migration or startup cleanup. Only initialize
   an empty, unmarked database; recognize legacy v1/v2 layouts before assigning
   Patchbay's application ID. The marker is a file-selection guard, not authentication.
+- Create new database files with mode `0600` before SQLite opens them, and keep
+  SQLite in existing-file mode. Preserve existing file and directory permissions.
 - Keep the unauthenticated prototype local, host validation enabled, and the
   JSON requirement on run-start requests. Host validation is not authentication.
 

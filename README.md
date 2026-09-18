@@ -81,6 +81,14 @@ Use `-db` to choose another file, for example:
 go run ./cmd/server -db ./data/development.db
 ```
 
+On Linux and macOS, new database files are created with owner-only read/write
+permissions (`0600`, subject to a more restrictive process umask) before SQLite
+opens them. Existing database files and directories keep their permissions;
+reopening an older database does not make its existing permissions more private.
+SQLite opens in [existing-file mode](https://sqlite.org/uri.html), so a missing
+symlink target is rejected rather than created. A failed initialization can leave
+the new private file in place for a later retry.
+
 Only one Patchbay server may use a database at a time, even on different ports.
 On Linux and macOS, startup takes an operating-system lock on `<database>.lock`
 before migrations or interrupted-run cleanup. A second server exits with
