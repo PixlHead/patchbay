@@ -83,7 +83,7 @@ func assertStoredRun(t *testing.T, db *sql.DB, definition workflow.Definition, r
 			step.FinishedAt = &value
 		}
 		if output.Valid {
-			step.Output = new(workflow.HTTPResult)
+			step.Output = new(workflow.CheckResult)
 			if err := json.Unmarshal([]byte(output.String), step.Output); err != nil {
 				t.Fatal(err)
 			}
@@ -145,7 +145,7 @@ func TestCreateRunRollsBackWithoutReplacingHistory(t *testing.T) {
 func runFixture() (workflow.Definition, engine.Run) {
 	started := time.UnixMilli(1750000000123).UTC()
 	finished := started.Add(time.Second)
-	config := workflow.HTTPConfig{URL: "http://localhost/health", ExpectedStatus: 200, TimeoutMS: 1000}
+	config := workflow.CheckConfig{URL: "http://localhost/health", ExpectedStatus: 200, TimeoutMS: 1000}
 	definition := workflow.Definition{
 		SchemaVersion: 1, ID: "checks", Name: "Service checks", Description: "Check local services",
 		Steps: []workflow.Step{
@@ -159,7 +159,7 @@ func runFixture() (workflow.Definition, engine.Run) {
 		Status: "failed", CreatedAt: started, StartedAt: started, FinishedAt: &finished,
 		Steps: []engine.StepRun{
 			{ID: "healthy", Name: "Healthy service", Status: "succeeded", StartedAt: &started, FinishedAt: &finished,
-				Output: &workflow.HTTPResult{Healthy: true, URL: config.URL, ExpectedStatus: 200, StatusCode: 200, DurationMS: 42, Reason: "expected status"}},
+				Output: &workflow.CheckResult{Healthy: true, URL: config.URL, ExpectedStatus: 200, StatusCode: 200, DurationMS: 42, Reason: "expected status"}},
 			{ID: "broken", Name: "Broken service", Status: "failed", StartedAt: &started, FinishedAt: &finished, Error: "connection refused"},
 			{ID: "skipped", Name: "Skipped service", Status: "skipped"},
 		},

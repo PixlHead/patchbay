@@ -11,7 +11,7 @@ import (
 
 func validDefinition() Definition {
 	return Definition{SchemaVersion: 1, ID: "example", Name: "Example", Steps: []Step{
-		{ID: "check", Name: "Check", Type: "http.check", Config: HTTPConfig{URL: "http://localhost/health", ExpectedStatus: 200, TimeoutMS: 1000}},
+		{ID: "check", Name: "Check", Type: "http.check", Config: CheckConfig{URL: "http://localhost/health", ExpectedStatus: 200, TimeoutMS: 1000}},
 	}}
 }
 

@@ -1,10 +1,10 @@
 # Patchbay · M0
 
 A small local workflow runner, built with Go and React. Load a workflow,
-run its HTTP checks, and inspect the results in your browser.
+run its HTTP and TCP checks, and inspect the results in your browser.
 
-The M0 skeleton is gaining M1 persistence and concurrency. Steps within a run
-execute sequentially; by default, two different workflows can run at once,
+The M0 skeleton is gaining M1 persistence, concurrency, and TCP checks. Steps
+within a run execute sequentially; by default, two different workflows can run at once,
 with ten more waiting in a first-in, first-out (FIFO) queue.
 Run snapshots, step progress, and completed results are saved in SQLite. The
 frontend displays the latest 100 runs across workflows, including saved history
@@ -230,6 +230,17 @@ server's environment, so proxy settings do not change the route being checked.
 The endpoint must be reachable directly from the Go process or container;
 configurable proxy support is not currently available.
 
+TCP checks attempt a connection, then immediately close it without exchanging
+application data. **Connected** means the port accepts connections; it does not
+verify application health, perform a TLS handshake, or log in to SSH. Refusal,
+DNS failure, and timeout are unhealthy check results, so they do not prevent the
+next step from running. Application shutdown cancels the operation.
+
+TCP results include the saved host, port, connection outcome, duration, and reason.
+Duration includes DNS lookup and connection establishment. The UI labels this
+**Time to connect** and reads the check type from the saved result, so changing a
+workflow later does not relabel older HTTP history as TCP.
+
 HTTP checks configure a 64 KiB response-header limit on their transport; Go
 applies the corresponding protocol-specific accounting for HTTP/1 and HTTP/2.
 Oversized or malformed responses produce an unhealthy result rather than an
@@ -272,6 +283,26 @@ when appropriate.
 
 URLs are used as written. The loader does not expand variables or templates.
 
+For TCP, copy `examples/tcp-check.json` into `workflows/` and replace its example
+host with a service you control. A TCP step uses:
+
+```json
+{
+  "id": "ssh-port",
+  "name": "SSH port",
+  "type": "tcp.check",
+  "config": { "host": "nas.home", "port": 22, "timeoutMs": 3000 }
+}
+```
+
+`host` accepts a DNS name, IPv4 address, or unbracketed IPv6 address (for example
+`::1`). Put the port in `port` (1–65535), not in the host. URLs, credentials,
+paths, whitespace, and brackets are rejected. DNS labels use ASCII letters,
+digits, and interior hyphens; single local names and trailing DNS dots are allowed.
+IPv6 interface zones such as `fe80::1%eth0` are also accepted. Both check types use
+100–30,000 ms timeouts, and a workflow can mix HTTP and TCP steps. Configuration
+fields belonging to the other check type are rejected, even when empty or zero.
+
 The server defaults to `-workflows workflows`; pass a different directory when
 needed. The starter health check uses port 8080. If you change the native server's
 `-addr` port, update that check's URL too. Changing only Docker's published host
@@ -296,7 +327,9 @@ as the later graph model develops.
 ```text
 cmd/server/main.go              Wire dependencies, load files, start/shut down HTTP
 internal/workflow/workflow.go   Workflow types, validation, JSON-file loading
-internal/nodes/http.go          Execute one HTTP check
+internal/nodes/httpcheck/       HTTP executor and its tests
+internal/nodes/tcpcheck/        TCP executor and its tests
+internal/nodes/resulttext/      Shared bounded result messages and their tests
 internal/engine/runner.go       Run steps sequentially; save execution progress
 internal/httpapi/api.go         Map HTTP routes to execution and saved history
 web/src/api.ts                 TypeScript API types and fetch helper
@@ -310,6 +343,11 @@ web/tests/fixtures/           Workflow data used only by browser tests
 For a guided explanation, read [the M0 walkthrough](docs/m0-walkthrough.md).
 Start with `workflow.go`, then the HTTP executor, then the runner; the UI and
 HTTP handlers are adapters around those pieces.
+
+Each integration owns a package under `internal/nodes`, with its tests beside
+the executor. `httpcheck.New()` and `tcpcheck.New()` construct an `Executor`
+whose `Execute` method is selected by the server's explicit dispatch switch.
+The small `resulttext` package supplies their shared failure-message limit.
 
 The [longer-term roadmap](docs/roadmap.md) preserves the agreed plan. See
 [the handoff verification record](docs/verification.md) for checks actually run
@@ -473,30 +511,34 @@ check rather than treating saved statuses as proof that an execution is active.
 After review, the focused tests can be run with
 `go test -race ./internal/engine ./internal/httpapi ./cmd/server ./internal/store`.
 Opening the database also applies migrations from `internal/store/schema.go`
-up to database schema version 2. A new database applies versions 1 and 2 in one
+up to database schema version 3. A new database applies versions 1–3 in one
 transaction. An existing version-1 database gains a `runs.error` text column
-with an empty default; its history is preserved.
+with an empty default; its history is preserved. Version 3 records support for TCP
+configuration and results in the existing JSON columns. It changes only the
+version marker, preserving tables and saved JSON, including old HTTP results
+without a `type` field. New TCP results include `type: "tcp.check"`.
 The `runs` table holds run metadata and a JSON copy of the workflow definition;
 `run_steps` holds ordered step results. Timestamps use Unix milliseconds.
 Schema changes and SQLite's `user_version` number are committed together.
 Reopening the current version preserves existing data; unsupported versions are
 rejected. The migration tests cover upgrading existing history, reopening,
 conflicts, and version rejection. Older Patchbay builds that only support schema
-version 1 cannot open an upgraded database; there is no automatic downgrade.
+versions 1 or 2 cannot open an upgraded database; there is no automatic downgrade.
+This upgrade happens on next startup, including with HTTP-only workflows.
 The workflow definition format remains at version 1.
 
 Before migration or startup cleanup, Patchbay checks SQLite's
 [`application_id`](https://sqlite.org/pragma.html#pragma_application_id) marker
 and the expected table layout. New databases must be empty and unmarked.
-Unmarked version-1 and version-2 files are recognized by their two tables,
+Unmarked version-1 through version-3 files are recognized by their two tables,
 column definitions, primary keys, unique step positions, and cascading foreign
 key. Extra user-defined schema objects prevent adoption of an unmarked file;
 SQLite's internal indexes and statistics are allowed.
 
 A recognized legacy file receives the Patchbay marker (`0x50544259`, "PTBY")
-in the same transaction as any needed migration. This header marker leaves the
-database schema version at 2. Marked files still have their table layout checked;
-additional indexes and triggers on Patchbay's tables are allowed. A foreign
+in the same transaction as any needed migration. This application marker is
+separate from the schema version. Marked files still have their table layout
+checked; additional indexes and triggers on Patchbay's tables are allowed. A foreign
 marker, unsupported version, or unrecognized layout prevents startup before
 Patchbay changes the database. Choose a separate database path for a new instance.
 Recognition protects against mistakenly selecting an unrelated database; it
@@ -540,6 +582,8 @@ editable versioned sample files, bounded in-memory history, basic shutdown,
 Docker packaging, and focused automated checks. The next small learning exercise
 is to change an HTTP-check field and trace it through both languages.
 
-M1 adds scheduling, SQLite, SSH, scripts, Discord, and administrator access. Visual
-graph editing, worker pools, retries, YAML, and model integrations remain later
+M1 already has SQLite history, bounded concurrent workflow runs, and TCP checks.
+Scheduling, SSH, scripts, Discord, administrator access, saved configuration,
+and configurable workflow presets remain. Visual graph editing, worker pools,
+retries, YAML, and model integrations remain later
 milestones. No extra packages or placeholder services have been created for them.

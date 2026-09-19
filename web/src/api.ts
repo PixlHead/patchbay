@@ -1,17 +1,38 @@
 // These small API types mirror internal/workflow and internal/engine in Go.
 // Keep them explicit until the API is large enough to justify code generation.
+export type WorkflowStep = { id: string; name: string } & (
+  | {
+      type: 'http.check';
+      config: { url: string; expectedStatus: number; timeoutMs: number };
+    }
+  | {
+      type: 'tcp.check';
+      config: { host: string; port: number; timeoutMs: number };
+    }
+);
+
 export type Workflow = {
   schemaVersion: number;
   id: string;
   name: string;
   description: string;
-  steps: {
-    id: string;
-    name: string;
-    type: string;
-    config: { url: string; expectedStatus: number; timeoutMs: number };
-  }[];
+  steps: WorkflowStep[];
 };
+
+export type CheckOutput = {
+  healthy: boolean;
+  durationMs: number;
+  reason: string;
+} & (
+  | {
+      // HTTP history written before TCP support has no type field.
+      type?: 'http.check';
+      url: string;
+      expectedStatus: number;
+      statusCode?: number;
+    }
+  | { type: 'tcp.check'; host: string; port: number }
+);
 
 export type StepRun = {
   id: string;
@@ -20,14 +41,7 @@ export type StepRun = {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
-  output?: {
-    healthy: boolean;
-    url: string;
-    expectedStatus: number;
-    statusCode?: number;
-    durationMs: number;
-    reason: string;
-  };
+  output?: CheckOutput;
 };
 
 export type Run = {

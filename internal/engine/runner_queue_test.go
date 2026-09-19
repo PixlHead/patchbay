@@ -18,7 +18,7 @@ func TestQueueIsFIFOAndWaitsForFinalSave(t *testing.T) {
 	finalA := make(chan struct{})
 	var finalOnce sync.Once
 	releaseFinal := make(chan struct{})
-	runner, err := New(1, 2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(1, 2, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		started <- step.ID
 		var release <-chan struct{}
 		switch step.ID {
@@ -27,13 +27,13 @@ func TestQueueIsFIFOAndWaitsForFinalSave(t *testing.T) {
 		case "b-one":
 			release = releaseB
 		default:
-			return workflow.HTTPResult{Healthy: true, Reason: step.Name}, nil
+			return workflow.CheckResult{Healthy: true, Reason: step.Name}, nil
 		}
 		select {
 		case <-release:
-			return workflow.HTTPResult{Healthy: true, Reason: step.Name}, nil
+			return workflow.CheckResult{Healthy: true, Reason: step.Name}, nil
 		case <-ctx.Done():
-			return workflow.HTTPResult{}, ctx.Err()
+			return workflow.CheckResult{}, ctx.Err()
 		}
 	}, nil, func(ctx context.Context, run Run) error {
 		if run.WorkflowID != "a" || run.Status == "running" {
@@ -127,16 +127,16 @@ func TestQueueSaveFailuresDoNotBlockFollowingWork(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan string, 4)
 	failedAdmission := false
-	runner, err := New(1, 2, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(1, 2, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		started <- step.ID
 		if step.ID == "a-one" {
 			select {
 			case <-release:
 			case <-ctx.Done():
-				return workflow.HTTPResult{}, ctx.Err()
+				return workflow.CheckResult{}, ctx.Err()
 			}
 		}
-		return workflow.HTTPResult{Healthy: true}, nil
+		return workflow.CheckResult{Healthy: true}, nil
 	}, func(_ context.Context, run Run, _ workflow.Definition) error {
 		if run.WorkflowID == "b" && !failedAdmission {
 			failedAdmission = true
@@ -195,9 +195,9 @@ func waitForStep(t *testing.T, started <-chan string, want string) {
 
 func TestCloseWaitsForQueuedCancellationSave(t *testing.T) {
 	finalStarted, releaseFinal := make(chan struct{}), make(chan struct{}, 1)
-	runner, err := New(1, 1, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(1, 1, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 		<-ctx.Done()
-		return workflow.HTTPResult{}, ctx.Err()
+		return workflow.CheckResult{}, ctx.Err()
 	}, nil, func(ctx context.Context, run Run) error {
 		if run.WorkflowID != "b" {
 			return nil

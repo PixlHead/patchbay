@@ -1,4 +1,4 @@
-package nodes
+package httpcheck
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 )
 
 func checkStep(url string) workflow.Step {
-	return workflow.Step{ID: "check", Name: "Check", Type: "http.check", Config: workflow.HTTPConfig{URL: url, ExpectedStatus: 200, TimeoutMS: 100}}
+	return workflow.Step{ID: "check", Name: "Check", Type: "http.check", Config: workflow.CheckConfig{URL: url, ExpectedStatus: 200, TimeoutMS: 100}}
 }
 
 func TestHealthResponses(t *testing.T) {
@@ -22,7 +22,7 @@ func TestHealthResponses(t *testing.T) {
 				w.WriteHeader(code)
 			}))
 			defer server.Close()
-			result, err := NewHTTP().Execute(context.Background(), checkStep(server.URL))
+			result, err := New().Execute(context.Background(), checkStep(server.URL))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -35,12 +35,12 @@ func TestHealthResponses(t *testing.T) {
 
 func TestUnreachableAndTimeoutAreHealthData(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
-	result, err := NewHTTP().Execute(context.Background(), checkStep(server.URL))
+	result, err := New().Execute(context.Background(), checkStep(server.URL))
 	server.Close()
 	if err != nil || result.Healthy || result.StatusCode != 0 || result.Reason != "No response within 100 ms" {
 		t.Fatalf("timeout result: %+v, %v", result, err)
 	}
-	result, err = NewHTTP().Execute(context.Background(), checkStep(server.URL))
+	result, err = New().Execute(context.Background(), checkStep(server.URL))
 	if err != nil || result.Healthy || result.StatusCode != 0 || result.Reason == "" {
 		t.Fatalf("unreachable result: %+v, %v", result, err)
 	}
@@ -56,7 +56,7 @@ func TestParentCancellationStopsRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { <-started; cancel() }()
-	_, err := NewHTTP().Execute(ctx, checkStep(server.URL))
+	_, err := New().Execute(ctx, checkStep(server.URL))
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("wanted cancellation, got %v", err)
 	}

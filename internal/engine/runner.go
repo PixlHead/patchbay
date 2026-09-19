@@ -22,13 +22,13 @@ var (
 )
 
 type StepRun struct {
-	ID         string               `json:"id"`
-	Name       string               `json:"name"`
-	Status     string               `json:"status"`
-	StartedAt  *time.Time           `json:"startedAt,omitempty"`
-	FinishedAt *time.Time           `json:"finishedAt,omitempty"`
-	Output     *workflow.HTTPResult `json:"output,omitempty"`
-	Error      string               `json:"error,omitempty"`
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Status     string                `json:"status"`
+	StartedAt  *time.Time            `json:"startedAt,omitempty"`
+	FinishedAt *time.Time            `json:"finishedAt,omitempty"`
+	Output     *workflow.CheckResult `json:"output,omitempty"`
+	Error      string                `json:"error,omitempty"`
 }
 
 type Run struct {
@@ -48,7 +48,7 @@ type Run struct {
 // ExecuteStep is a function dependency, letting engine tests use a controlled
 // executor without a network server or a plugin framework. Implementations must
 // support concurrent calls from different runs.
-type ExecuteStep func(context.Context, workflow.Step) (workflow.HTTPResult, error)
+type ExecuteStep func(context.Context, workflow.Step) (workflow.CheckResult, error)
 
 // RecordNewRun saves the initial run and workflow snapshot before execution.
 // Implementations must respect context cancellation and save the snapshot atomically.

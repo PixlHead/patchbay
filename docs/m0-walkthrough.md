@@ -19,9 +19,10 @@ Open `cmd/server/main.go`. `workflow.Load` reads and validates the JSON definiti
 Startup loads `workflows/`; its starter check calls the app's own health
 endpoint. Use `make api` during native development or `make up` with Docker.
 The loader uses each configured URL as written.
-`nodes.NewHTTP` constructs a reusable HTTP client. `engine.New(httpNode.Execute)`
-gives the runner the function that can execute its steps. `httpapi.New` connects
-those values to HTTP handlers.
+`httpcheck.New()` constructs the HTTP executor with its reusable client;
+`tcpcheck.New()` constructs the TCP executor. The server's `checkExecutor`
+switch selects the executor by step type and supplies that function to
+`engine.New`. `httpapi.New` connects those values to HTTP handlers.
 
 Nothing is looked up through a global service container. You can see which value
 depends on which other value in `main`.
@@ -29,8 +30,9 @@ depends on which other value in `main`.
 ## 2. A definition describes work; a run records an attempt
 
 In `internal/workflow/workflow.go`, `Definition` holds the workflow ID, name,
-schema version, and ordered steps. `HTTPConfig` describes what one check expects.
-It is concrete because M0 has only one executor type.
+schema version, and ordered steps. `CheckConfig` describes what one HTTP or TCP
+check expects. Each executor lives in its own package under `internal/nodes`,
+with its tests and private helpers beside it.
 
 In `internal/engine/runner.go`, `Run` holds one execution ID, timestamps, overall
 status, and a result record for each step. Clicking Run twice produces two
@@ -79,7 +81,7 @@ so JSON encoding does not race with the running workflow.
 
 ## 6. The node answers a health question
 
-`internal/nodes/http.go` creates a timeout context for the step, performs a GET,
+`internal/nodes/httpcheck/http.go` creates a timeout context for the step, performs a GET,
 and compares the response status to the expected one. It measures time to response
 headers and closes the body without storing it. It does not follow redirects.
 

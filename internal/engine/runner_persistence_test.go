@@ -13,11 +13,11 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 	var saved Run
 	var savedDefinition workflow.Definition
 	records := 0
-	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		if saved.ID == "" {
-			return workflow.HTTPResult{}, errors.New("step started before the run was saved")
+			return workflow.CheckResult{}, errors.New("step started before the run was saved")
 		}
-		return workflow.HTTPResult{Healthy: true}, nil
+		return workflow.CheckResult{Healthy: true}, nil
 	}, func(ctx context.Context, run Run, definition workflow.Definition) error {
 		records++
 		saved, savedDefinition = run, definition
@@ -47,9 +47,9 @@ func TestStartRecordsSnapshotBeforeExecution(t *testing.T) {
 func TestStartRejectsFailedSaveAndAllowsRetry(t *testing.T) {
 	storageError := errors.New("storage unavailable")
 	attempts, executed := 0, 0
-	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		executed++
-		return workflow.HTTPResult{Healthy: true}, nil
+		return workflow.CheckResult{Healthy: true}, nil
 	}, func(context.Context, Run, workflow.Definition) error {
 		attempts++
 		if attempts == 1 {

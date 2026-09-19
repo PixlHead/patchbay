@@ -1,16 +1,18 @@
-// Package workflow defines the small, sequential workflow format used in M0.
-// It contains data and validation, with no HTTP calls or background execution.
+// Package workflow defines the small, sequential workflow format.
+// It contains data and validation, with no network calls or background execution.
 package workflow
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const maxDefinitionBytes = 64 * 1024
@@ -24,24 +26,33 @@ type Definition struct {
 }
 
 type Step struct {
-	ID     string     `json:"id"`
-	Name   string     `json:"name"`
-	Type   string     `json:"type"`
-	Config HTTPConfig `json:"config"`
+	ID     string      `json:"id"`
+	Name   string      `json:"name"`
+	Type   string      `json:"type"`
+	Config CheckConfig `json:"config"`
 }
 
-// HTTPConfig is intentionally concrete: M0 has exactly one node type.
-type HTTPConfig struct {
-	URL            string `json:"url"`
-	ExpectedStatus int    `json:"expectedStatus"`
+// CheckConfig holds the two supported check configurations as plain values.
+// HTTP uses URL/ExpectedStatus; TCP uses Host/Port. Both use TimeoutMS.
+// Step.UnmarshalJSON and Validate reject fields belonging to the other check type.
+type CheckConfig struct {
+	URL            string `json:"url,omitempty"`
+	ExpectedStatus int    `json:"expectedStatus,omitempty"`
+	Host           string `json:"host,omitempty"`
+	Port           int    `json:"port,omitempty"`
 	TimeoutMS      int    `json:"timeoutMs"`
 }
 
-type HTTPResult struct {
+// CheckResult is copied with each run snapshot. An absent Type means HTTP,
+// preserving the original HTTP JSON format; TCP results identify themselves.
+type CheckResult struct {
+	Type           string `json:"type,omitempty"`
 	Healthy        bool   `json:"healthy"`
-	URL            string `json:"url"`
-	ExpectedStatus int    `json:"expectedStatus"`
+	URL            string `json:"url,omitempty"`
+	ExpectedStatus int    `json:"expectedStatus,omitempty"`
 	StatusCode     int    `json:"statusCode,omitempty"`
+	Host           string `json:"host,omitempty"`
+	Port           int    `json:"port,omitempty"`
 	DurationMS     int64  `json:"durationMs"`
 	Reason         string `json:"reason"`
 }
@@ -64,21 +75,66 @@ func Validate(d Definition) error {
 			return fmt.Errorf("step id %q is invalid or duplicated", step.ID)
 		}
 		seen[step.ID] = true
-		if strings.TrimSpace(step.Name) == "" || step.Type != "http.check" {
-			return fmt.Errorf("step %q needs a name and type http.check", step.ID)
+		if strings.TrimSpace(step.Name) == "" {
+			return fmt.Errorf("step %q needs a name", step.ID)
 		}
-		u, err := url.Parse(step.Config.URL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
-			return fmt.Errorf("step %q needs an absolute HTTP(S) URL without credentials or a fragment", step.ID)
-		}
-		if step.Config.ExpectedStatus < 100 || step.Config.ExpectedStatus > 599 {
-			return fmt.Errorf("step %q expectedStatus must be between 100 and 599", step.ID)
+		switch step.Type {
+		case "http.check":
+			if step.Config.Host != "" || step.Config.Port != 0 {
+				return fmt.Errorf("step %q HTTP config cannot contain host or port", step.ID)
+			}
+			u, err := url.Parse(step.Config.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
+				return fmt.Errorf("step %q needs an absolute HTTP(S) URL without credentials or a fragment", step.ID)
+			}
+			if step.Config.ExpectedStatus < 100 || step.Config.ExpectedStatus > 599 {
+				return fmt.Errorf("step %q expectedStatus must be between 100 and 599", step.ID)
+			}
+		case "tcp.check":
+			if step.Config.URL != "" || step.Config.ExpectedStatus != 0 {
+				return fmt.Errorf("step %q TCP config cannot contain url or expectedStatus", step.ID)
+			}
+			if !validTCPHost(step.Config.Host) {
+				return fmt.Errorf("step %q host must be a DNS name or IP address without a URL, brackets, or port", step.ID)
+			}
+			if step.Config.Port < 1 || step.Config.Port > 65535 {
+				return fmt.Errorf("step %q port must be between 1 and 65535", step.ID)
+			}
+		default:
+			return fmt.Errorf("step %q type must be http.check or tcp.check", step.ID)
 		}
 		if step.Config.TimeoutMS < 100 || step.Config.TimeoutMS > 30000 {
 			return fmt.Errorf("step %q timeoutMs must be between 100 and 30000", step.ID)
 		}
 	}
 	return nil
+}
+
+func validTCPHost(host string) bool {
+	if strings.ContainsAny(host, "/\\[]@?#") || strings.ContainsFunc(host, func(c rune) bool {
+		return unicode.IsSpace(c) || unicode.IsControl(c)
+	}) {
+		return false
+	}
+	if _, err := netip.ParseAddr(host); err == nil {
+		return true // Includes unbracketed IPv6 and optional interface zones.
+	}
+	// DNS names may be a single local name or end with the absolute-name dot.
+	name := strings.TrimSuffix(host, ".")
+	if len(name) == 0 || len(name) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // Load reads and validates workflow JSON files once at startup.

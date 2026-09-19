@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// Legacy files have no application ID. Recognize the layout emitted by v1/v2
+// Legacy files have no application ID. Recognize the known table layouts
 // before adopting them. Also check marked files before allowing startup writes.
 // This guards against selecting the wrong file; it is not a tamper/integrity check.
 func recognizeSchema(ctx context.Context, tx *sql.Tx, version int, legacy bool) error {
@@ -54,7 +54,7 @@ func recognizeSchema(ctx context.Context, tx *sql.Tx, version int, legacy bool) 
 		{"started_at", "INTEGER", 0, "", 0, 0},
 		{"finished_at", "INTEGER", 0, "", 0, 0},
 	}
-	if version == 2 {
+	if version >= 2 {
 		runColumns = append(runColumns, schemaColumn{"error", "TEXT", 1, "''", 0, 0})
 	}
 	if err := recognizeColumns(ctx, tx, "runs", runColumns); err != nil {

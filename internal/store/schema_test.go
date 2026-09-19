@@ -24,7 +24,7 @@ func TestOpenUpgradesVersionOneWithoutChangingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Seed the old columns directly: CreateRun now requires schema version 2.
+	// Seed the old columns directly: CreateRun requires the error column from v2.
 	if _, err := legacy.ExecContext(ctx, `INSERT INTO runs
         (id, workflow_id, workflow_name, definition_json, status, created_at, started_at, finished_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, original.ID, original.WorkflowID,
@@ -120,7 +120,7 @@ func TestMigrateLeavesUnsupportedOrConflictingSchemasUnchanged(t *testing.T) {
 		name, setup string
 		version     int
 	}{
-		{"newer version", "PRAGMA user_version = 3", 3},
+		{"newer version", "PRAGMA user_version = 4", 4},
 		{"table conflict", "CREATE TABLE run_steps (marker TEXT)", 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {

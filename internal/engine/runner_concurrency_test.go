@@ -28,16 +28,16 @@ func TestDifferentWorkflowsOverlapButTheirStepsStaySequential(t *testing.T) {
 	releaseA, releaseB := make(chan struct{}), make(chan struct{})
 	started := make(chan string, 10)
 	blocked := map[string]<-chan struct{}{"a-one": releaseA, "b-one": releaseB}
-	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		started <- step.ID
 		if release, ok := blocked[step.ID]; ok {
 			select {
 			case <-release:
 			case <-ctx.Done():
-				return workflow.HTTPResult{}, ctx.Err()
+				return workflow.CheckResult{}, ctx.Err()
 			}
 		}
-		return workflow.HTTPResult{Healthy: true, Reason: step.ID}, nil
+		return workflow.CheckResult{Healthy: true, Reason: step.ID}, nil
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -102,10 +102,10 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 		t.Run(fmt.Sprintf("same-workflow=%t/queue=%d", test.duplicate, test.queued), func(t *testing.T) {
 			var recorded atomic.Int32
 			started := make(chan struct{}, 24)
-			runner, err := New(3, test.queued, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(3, test.queued, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 				started <- struct{}{}
 				<-ctx.Done()
-				return workflow.HTTPResult{}, ctx.Err()
+				return workflow.CheckResult{}, ctx.Err()
 			}, func(context.Context, Run, workflow.Definition) error {
 				recorded.Add(1)
 				return nil
@@ -190,12 +190,12 @@ func TestSimultaneousStartsRespectCapacityAndWorkflowOverlap(t *testing.T) {
 }
 
 func TestActiveRunSurvivesMemoryHistoryTrimming(t *testing.T) {
-	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		if step.ID == "slow-one" {
 			<-ctx.Done()
-			return workflow.HTTPResult{}, ctx.Err()
+			return workflow.CheckResult{}, ctx.Err()
 		}
-		return workflow.HTTPResult{Healthy: true}, nil
+		return workflow.CheckResult{Healthy: true}, nil
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -221,8 +221,8 @@ func TestRunKeepsItsSlotUntilFinalSaveReturns(t *testing.T) {
 	finalStarted := make(chan struct{}, 2)
 	var finalOnce sync.Once
 	release := make(chan struct{})
-	runner, err := New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
-		return workflow.HTTPResult{Healthy: true}, nil
+	runner, err := New(1, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
+		return workflow.CheckResult{Healthy: true}, nil
 	}, nil, func(ctx context.Context, run Run) error {
 		if run.Status == "running" {
 			return nil
@@ -279,9 +279,9 @@ func concurrentDefinition(id string) workflow.Definition {
 }
 
 func TestQueuedRunsSurviveHistoryTrimming(t *testing.T) {
-	runner, err := New(1, 101, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(1, 101, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 		<-ctx.Done()
-		return workflow.HTTPResult{}, ctx.Err()
+		return workflow.CheckResult{}, ctx.Err()
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

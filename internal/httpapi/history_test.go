@@ -91,11 +91,11 @@ func TestProgressSaveFailureReasonSurvivesDatabaseReopen(t *testing.T) {
 			later := definitions[0].Steps[0]
 			later.ID, later.Name = "later", "Check later"
 			definitions[0].Steps = append(definitions[0].Steps, later)
-			output := workflow.HTTPResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
+			output := workflow.CheckResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
 			executed := 0
 			var progressError error
 			finalSaved := make(chan error, 3)
-			runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 				executed++
 				return output, nil
 			}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
@@ -251,7 +251,7 @@ func historyRun(id string, started time.Time) engine.Run {
 		Status: "succeeded", CreatedAt: started, StartedAt: started, FinishedAt: &finished,
 		Steps: []engine.StepRun{{
 			ID: step.ID, Name: step.Name, Status: "succeeded", StartedAt: &started, FinishedAt: &finished,
-			Output: &workflow.HTTPResult{Healthy: true, StatusCode: 200, DurationMS: 42, Reason: "expected status"},
+			Output: &workflow.CheckResult{Healthy: true, StatusCode: 200, DurationMS: 42, Reason: "expected status"},
 		}},
 	}
 }
@@ -266,11 +266,11 @@ func TestHistoryRecoversAfterFinalSaveFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	definitions := testDefinitions()
-	output := workflow.HTTPResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
+	output := workflow.CheckResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
 	executed := 0
 	var finalAttempts []engine.Run
 	var firstError error
-	runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		executed++
 		return output, nil
 	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
@@ -357,10 +357,10 @@ func TestHistoryShowsUnsavedFinalResultWithoutHidingReadFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := workflow.HTTPResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
+	output := workflow.CheckResult{Healthy: true, StatusCode: 200, Reason: "checked once"}
 	finalStarted := make(chan struct{})
 	executed, attempts := 0, 0
-	runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(1, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		executed++
 		return output, nil
 	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {

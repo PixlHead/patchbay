@@ -17,7 +17,8 @@ func TestOpenRefusesUnrecognizedDatabasesWithoutChangingTheirFiles(t *testing.T)
 	const extraView = "CREATE VIEW saved_names AS SELECT workflow_name FROM runs;"
 	const extraIndex = "CREATE INDEX run_status ON runs(status);"
 	const extraTrigger = "CREATE TRIGGER keep_runs AFTER INSERT ON runs BEGIN SELECT 1; END;"
-	currentSchema := initialSchema + runErrorMigration
+	versionTwoSchema := initialSchema + runErrorMigration
+	currentSchema := versionTwoSchema + tcpCheckMigration
 	for _, test := range []struct{ name, setup string }{
 		{"unrelated populated version zero", extraTable},
 		{"sqliteX table is not internal", "CREATE TABLE sqliteXnotes (body TEXT); INSERT INTO sqliteXnotes VALUES ('keep');"},
@@ -28,17 +29,17 @@ func TestOpenRefusesUnrecognizedDatabasesWithoutChangingTheirFiles(t *testing.T)
 		{"version two wrong columns", "CREATE TABLE runs (id TEXT); CREATE TABLE run_steps (run_id TEXT); PRAGMA user_version = 2;"},
 		{"version one missing primary key", strings.Replace(initialSchema, "id TEXT PRIMARY KEY NOT NULL", "id TEXT NOT NULL", 1)},
 		{"version one missing position uniqueness", strings.Replace(initialSchema, ",\n    UNIQUE (run_id, position)", "", 1)},
-		{"version two missing foreign key", strings.Replace(currentSchema, " REFERENCES runs(id) ON DELETE CASCADE", "", 1)},
-		{"version two non-cascading foreign key", strings.Replace(currentSchema, "ON DELETE CASCADE", "ON DELETE RESTRICT", 1)},
-		{"version two wrong column type", strings.Replace(currentSchema, "workflow_name TEXT", "workflow_name BLOB", 1)},
-		{"version two nullable column", strings.Replace(currentSchema, "workflow_name TEXT NOT NULL", "workflow_name TEXT", 1)},
+		{"version two missing foreign key", strings.Replace(versionTwoSchema, " REFERENCES runs(id) ON DELETE CASCADE", "", 1)},
+		{"version two non-cascading foreign key", strings.Replace(versionTwoSchema, "ON DELETE CASCADE", "ON DELETE RESTRICT", 1)},
+		{"version two wrong column type", strings.Replace(versionTwoSchema, "workflow_name TEXT", "workflow_name BLOB", 1)},
+		{"version two nullable column", strings.Replace(versionTwoSchema, "workflow_name TEXT NOT NULL", "workflow_name TEXT", 1)},
 		{"version two wrong error default", initialSchema + strings.Replace(runErrorMigration, "DEFAULT ''", "DEFAULT 'keep'", 1)},
 		{"version two generated error column", initialSchema + strings.Replace(runErrorMigration, "error TEXT NOT NULL DEFAULT ''", "error TEXT GENERATED ALWAYS AS ('') VIRTUAL", 1)},
-		{"unmarked legacy extra table", currentSchema + extraTable},
-		{"unmarked legacy extra view", currentSchema + extraView},
-		{"unmarked legacy extra index", currentSchema + extraIndex},
-		{"unmarked legacy extra trigger", currentSchema + extraTrigger},
-		{"marked current wrong columns", "CREATE TABLE runs (id TEXT); PRAGMA user_version = 2;" + patchbayMarker},
+		{"unmarked legacy extra table", versionTwoSchema + extraTable},
+		{"unmarked legacy extra view", versionTwoSchema + extraView},
+		{"unmarked legacy extra index", versionTwoSchema + extraIndex},
+		{"unmarked legacy extra trigger", versionTwoSchema + extraTrigger},
+		{"marked current wrong columns", "CREATE TABLE runs (id TEXT); PRAGMA user_version = 3;" + patchbayMarker},
 		{"marked current missing constraint", strings.Replace(currentSchema, ",\n    UNIQUE (run_id, position)", "", 1) + patchbayMarker},
 		{"marked current extra table", currentSchema + patchbayMarker + extraTable},
 		{"marked current extra view", currentSchema + patchbayMarker + extraView},
@@ -127,7 +128,7 @@ func TestOpenAdoptsUnmarkedVersionTwoAndPreservesHistory(t *testing.T) {
 		if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 			t.Fatal(err)
 		}
-		if marker != 0x50544259 || version != 2 {
+		if marker != applicationID || version != schemaVersion {
 			t.Fatalf("wrong identity after open %d: marker=%x version=%d", attempt+1, marker, version)
 		}
 		assertStoredRun(t, db, definition, original)

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "tcp-service-check",
+  "name": "TCP service check",
+  "description": "Confirm that a configured port accepts TCP connections.",
+  "steps": [
+    {
+      "id": "port",
+      "name": "SSH port",
+      "type": "tcp.check",
+      "config": {
+        "host": "192.0.2.10",
+        "port": 22,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

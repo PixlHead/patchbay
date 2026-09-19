@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // "PTBY" identifies Patchbay files independently of their migration version.
 const applicationID = 0x50544259
@@ -47,6 +47,11 @@ const runErrorMigration = `
 ALTER TABLE runs ADD COLUMN error TEXT NOT NULL DEFAULT '';
 PRAGMA user_version = 2;
 `
+
+// The existing JSON columns can now contain TCP check configuration/results.
+// Record that capability so older HTTP-only builds refuse this database.
+// Existing tables, workflow snapshots, and result JSON remain unchanged.
+const tcpCheckMigration = `PRAGMA user_version = 3;`
 
 func migrate(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
@@ -92,6 +97,11 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if version < 2 {
 		if _, err := tx.ExecContext(ctx, runErrorMigration); err != nil {
 			return fmt.Errorf("migrate database schema to version 2: %w", err)
+		}
+	}
+	if version < 3 {
+		if _, err := tx.ExecContext(ctx, tcpCheckMigration); err != nil {
+			return fmt.Errorf("migrate database schema to version 3: %w", err)
 		}
 	}
 	// Adopt a recognized legacy database only after its migration succeeds.

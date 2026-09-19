@@ -20,11 +20,11 @@ func TestRunSavesProgressAndCompletion(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			var updates []Run
-			runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 				if executionFails {
-					return workflow.HTTPResult{}, errors.New("connection refused")
+					return workflow.CheckResult{}, errors.New("connection refused")
 				}
-				return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
+				return workflow.CheckResult{Healthy: true, StatusCode: 200}, nil
 			}, nil, func(_ context.Context, run Run) error {
 				updates = append(updates, run)
 				return nil
@@ -102,9 +102,9 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			writes, executed := 0, 0
 			var lastAttempt Run
-			runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 				executed++
-				return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
+				return workflow.CheckResult{Healthy: true, StatusCode: 200}, nil
 			}, nil, func(_ context.Context, run Run) error {
 				writes++
 				lastAttempt = run
@@ -154,9 +154,9 @@ func TestSaveFailureStopsLaterStepsWithoutReplayingActions(t *testing.T) {
 func TestProgressSaveFailurePreservesExecutionError(t *testing.T) {
 	var lastAttempt Run
 	executed := 0
-	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		executed++
-		return workflow.HTTPResult{}, errors.New("executor failed")
+		return workflow.CheckResult{}, errors.New("executor failed")
 	}, nil, func(_ context.Context, run Run) error {
 		lastAttempt = run
 		if run.Status == "running" && run.Steps[0].Status == "failed" {
@@ -193,14 +193,14 @@ func TestShutdownSavesCancellationAndWaitsForFinalWrite(t *testing.T) {
 			releaseFinal := make(chan struct{}, 1)
 			var saved Run
 			executed := 0
-			runner, err := New(2, 0, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+			runner, err := New(2, 0, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 				executed++
 				if phase == "saving step result" {
-					return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
+					return workflow.CheckResult{Healthy: true, StatusCode: 200}, nil
 				}
 				close(begun)
 				<-ctx.Done()
-				return workflow.HTTPResult{}, ctx.Err()
+				return workflow.CheckResult{}, ctx.Err()
 			}, nil, func(ctx context.Context, run Run) error {
 				if run.Status == "running" {
 					if phase == "saving step start" || (phase == "saving step result" && run.Steps[0].Status == "succeeded") {
@@ -312,7 +312,7 @@ func TestFinalSaveRetriesUnchangedResult(t *testing.T) {
 		finished := runner.finishRun(context.Background(), Run{
 			ID: "retry", Status: "running", CreatedAt: started, StartedAt: started,
 			Steps: []StepRun{
-				{ID: "done", Status: "succeeded", Output: &workflow.HTTPResult{Healthy: true}},
+				{ID: "done", Status: "succeeded", Output: &workflow.CheckResult{Healthy: true}},
 				{ID: "pending", Status: "pending"},
 			},
 		}, "failed")
@@ -352,9 +352,9 @@ func TestCloseBoundsActiveAndQueuedFinalSaves(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var mu sync.Mutex
 		attempts := make(map[string]int)
-		runner, err := New(1, 2, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+		runner, err := New(1, 2, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 			<-ctx.Done()
-			return workflow.HTTPResult{}, ctx.Err()
+			return workflow.CheckResult{}, ctx.Err()
 		}, nil, func(ctx context.Context, run Run) error {
 			if run.Status != "canceled" {
 				return nil

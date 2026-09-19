@@ -26,7 +26,7 @@ func testDefinitions() []workflow.Definition {
 		SchemaVersion: 1, ID: "test-workflow", Name: "Test workflow",
 		Steps: []workflow.Step{{
 			ID: "health", Name: "Check health", Type: "http.check",
-			Config: workflow.HTTPConfig{URL: "http://service.invalid/health", ExpectedStatus: 200, TimeoutMS: 1000},
+			Config: workflow.CheckConfig{URL: "http://service.invalid/health", ExpectedStatus: 200, TimeoutMS: 1000},
 		}},
 	}}
 }
@@ -35,12 +35,12 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
 	release := make(chan struct{})
-	runner, err := engine.New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		select {
 		case <-release:
-			return workflow.HTTPResult{Healthy: true, StatusCode: 200}, nil
+			return workflow.CheckResult{Healthy: true, StatusCode: 200}, nil
 		case <-ctx.Done():
-			return workflow.HTTPResult{}, ctx.Err()
+			return workflow.CheckResult{}, ctx.Err()
 		}
 	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
@@ -115,9 +115,9 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 	storageError := errors.New("write /private/patchbay-test.db: disk full")
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	executed := false
-	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
 		executed = true
-		return workflow.HTTPResult{}, nil
+		return workflow.CheckResult{}, nil
 	}, func(context.Context, engine.Run, workflow.Definition) error {
 		return storageError
 	}, nil)
@@ -154,7 +154,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 func TestAPIErrorResponses(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	definitions := testDefinitions()
-	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) { return workflow.HTTPResult{}, nil }, nil, nil)
+	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) { return workflow.CheckResult{}, nil }, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,10 +202,10 @@ func openTestDB(t *testing.T, path string) *sql.DB {
 func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
 	started := make(chan struct{}, 6)
-	runner, err := engine.New(2, 1, func(ctx context.Context, _ workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := engine.New(2, 1, func(ctx context.Context, _ workflow.Step) (workflow.CheckResult, error) {
 		started <- struct{}{}
 		<-ctx.Done()
-		return workflow.HTTPResult{}, ctx.Err()
+		return workflow.CheckResult{}, ctx.Err()
 	}, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
 	}, func(ctx context.Context, run engine.Run) error {

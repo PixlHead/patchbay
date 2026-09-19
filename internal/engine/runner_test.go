@@ -13,8 +13,8 @@ import (
 
 func example() workflow.Definition {
 	return workflow.Definition{SchemaVersion: 1, ID: "test", Name: "Test", Steps: []workflow.Step{
-		{ID: "one", Name: "One", Type: "http.check", Config: workflow.HTTPConfig{URL: "http://localhost", ExpectedStatus: 200, TimeoutMS: 100}},
-		{ID: "two", Name: "Two", Type: "http.check", Config: workflow.HTTPConfig{URL: "http://localhost", ExpectedStatus: 200, TimeoutMS: 100}},
+		{ID: "one", Name: "One", Type: "http.check", Config: workflow.CheckConfig{URL: "http://localhost", ExpectedStatus: 200, TimeoutMS: 100}},
+		{ID: "two", Name: "Two", Type: "http.check", Config: workflow.CheckConfig{URL: "http://localhost", ExpectedStatus: 200, TimeoutMS: 100}},
 	}}
 }
 
@@ -41,9 +41,9 @@ func awaitRun(t *testing.T, runner *Runner, id string) Run {
 
 func TestSequentialChecksAndSnapshots(t *testing.T) {
 	var called []string
-	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		called = append(called, step.ID)
-		return workflow.HTTPResult{Healthy: false, Reason: "maintenance"}, nil
+		return workflow.CheckResult{Healthy: false, Reason: "maintenance"}, nil
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -68,8 +68,8 @@ func TestSequentialChecksAndSnapshots(t *testing.T) {
 }
 
 func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
-	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
-		return workflow.HTTPResult{}, errors.New("executor failed")
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
+		return workflow.CheckResult{}, errors.New("executor failed")
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,10 +87,10 @@ func TestExecutionFailureSkipsLaterSteps(t *testing.T) {
 
 func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 	started := make(chan struct{})
-	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+	runner, err := New(2, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 		close(started)
 		<-ctx.Done()
-		return workflow.HTTPResult{}, ctx.Err()
+		return workflow.CheckResult{}, ctx.Err()
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -126,8 +126,8 @@ func TestBusyShutdownAndConcurrentReads(t *testing.T) {
 
 func TestInvalidDefinitionNeverRunsAndHistoryIsBounded(t *testing.T) {
 	finalSaves := 0
-	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
-		return workflow.HTTPResult{Healthy: true}, nil
+	runner, err := New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
+		return workflow.CheckResult{Healthy: true}, nil
 	}, nil, func(_ context.Context, run Run) error {
 		if run.Status == "succeeded" {
 			finalSaves++

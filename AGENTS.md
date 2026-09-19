@@ -44,7 +44,9 @@ behavior changes.
 | `cmd/server/main.go` | Wire dependencies; startup, configuration, and shutdown |
 | `cmd/server/database_lock.go` | Linux/macOS ownership lock for one server per database |
 | `internal/workflow/` | Definition/config/result types, validation, JSON loading |
-| `internal/nodes/` | HTTP-check execution |
+| `internal/nodes/httpcheck/` | HTTP executor and its tests |
+| `internal/nodes/tcpcheck/` | TCP executor and its tests |
+| `internal/nodes/resulttext/` | Shared bounded check-result text and its tests |
 | `internal/engine/` | Admission, bounded queue, execution state, progress/final saves |
 | `internal/store/` | SQLite schema, transactions, reads, startup interruption cleanup |
 | `internal/httpapi/` | HTTP routes, history responses, request-host validation |
@@ -54,7 +56,7 @@ behavior changes.
 | `workflows/`, `examples/` | Loaded workflow files and configuration templates |
 | `web/tests/` | Playwright checks and their workflow fixtures |
 
-The app currently executes `http.check` steps from startup-loaded JSON files.
+The app currently executes `http.check` and `tcp.check` steps from startup-loaded JSON files.
 Different workflows can run concurrently; steps within a run remain sequential.
 Canvas nodes and new workflow drafts are frontend-only and are lost on reload.
 There is no demo service. SSH, scripts, Discord, scheduling, authentication,
@@ -89,7 +91,7 @@ introduce their infrastructure while implementing the current SQLite features.
 - Preserve atomic run/step snapshots and existing data. Introduce deliberate
   versioned migrations when stored structure changes.
 - Verify database identity before migration or startup cleanup. Only initialize
-  an empty, unmarked database; recognize legacy v1/v2 layouts before assigning
+  an empty, unmarked database; recognize supported v1–v3 layouts before assigning
   Patchbay's application ID. The marker is a file-selection guard, not authentication.
 - Create new database files with mode `0600` before SQLite opens them, and keep
   SQLite in existing-file mode. Preserve existing file and directory permissions.
@@ -102,10 +104,18 @@ introduce their infrastructure while implementing the current SQLite features.
 ## Extending the app
 
 For a new node type, start with its validated configuration and result contract
-in `internal/workflow`, then its executor in `internal/nodes` and dispatch wiring
-in `cmd/server`. The current step config, engine output, and frontend types are
-HTTP-specific; inspect all of them when adding a second executor. There is no
-generic node registry yet. Add only the generalization the agreed node requires.
+in `internal/workflow`, then its own executor package under `internal/nodes` and
+dispatch wiring in `cmd/server`. Keep each executor's tests and private helpers
+beside it; each package has a `New` constructor and an `Executor.Execute` method.
+`resulttext` holds the message limiter shared by the two check executors.
+Create integration packages when their implementation begins.
+`CheckConfig` and `CheckResult` hold HTTP/TCP fields as plain
+values; step decoding selects the allowed config fields by type. TCP results carry
+`type: "tcp.check"`; a missing result type means legacy HTTP. Keep historical
+results independent of the currently loaded workflow. Schema version 3 records
+TCP support without rewriting saved JSON, preventing older HTTP-only builds from
+reading TCP history. There is no generic node registry. Add only the generalization
+the agreed node requires, and revisit snapshot copying if adding nested pointers.
 Keep backend validation authoritative and update examples and relevant UI/API
 types together. A canvas placeholder alone does not implement an executable node.
 

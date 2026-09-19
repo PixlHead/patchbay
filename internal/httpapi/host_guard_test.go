@@ -109,8 +109,8 @@ func TestHostGuardRejectsInvalidConfiguration(t *testing.T) {
 
 func TestHostGuardProtectsAPIAndFrontend(t *testing.T) {
 	db := openTestDB(t, filepath.Join(t.TempDir(), "history.db"))
-	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.HTTPResult, error) {
-		return workflow.HTTPResult{Healthy: true}, nil
+	runner, err := engine.New(2, 0, func(context.Context, workflow.Step) (workflow.CheckResult, error) {
+		return workflow.CheckResult{Healthy: true}, nil
 	}, nil, nil)
 	if err != nil {
 		t.Fatal(err)

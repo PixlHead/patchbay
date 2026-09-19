@@ -1,4 +1,4 @@
-package nodes
+package httpcheck
 
 import (
 	"context"
@@ -73,7 +73,7 @@ func TestHTTPChecksIgnoreEnvironmentProxy(t *testing.T) {
 	t.Setenv("HTTP_PROXY", proxy.URL)
 	t.Setenv("HTTPS_PROXY", proxy.URL)
 
-	node := NewHTTP()
+	node := New()
 	defer node.client.CloseIdleConnections()
 	step := checkStep(scheme + "://" + endpointHost + "/health")
 	step.Config.TimeoutMS = 2000
@@ -85,7 +85,7 @@ func TestHTTPChecksIgnoreEnvironmentProxy(t *testing.T) {
 	// catches changes that disable proxies globally instead of on the clone.
 	defaultTransport := http.DefaultTransport.(*http.Transport)
 	if defaultTransport.Proxy == nil {
-		t.Fatal("NewHTTP changed the shared default transport's proxy policy")
+		t.Fatal("New changed the shared default transport's proxy policy")
 	}
 	configuredProxy, err := defaultTransport.Proxy(request)
 	if err != nil || configuredProxy == nil || configuredProxy.String() != proxy.URL {

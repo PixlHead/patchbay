@@ -195,7 +195,7 @@ The initial skeleton can fit this layout; add packages as their milestones intro
 cmd/server/main.go         Construct dependencies and start/shut down the app
 internal/workflow/        Workflow, node, run types and validation
 internal/engine/          Sequential execution first; concurrency later
-internal/nodes/           HTTP executor first; other integrations next
+internal/nodes/           One package per implemented integration, with its tests
 internal/httpapi/         Request parsing and response mapping
 web/                      React application
 workflows/                Normal workflow definitions

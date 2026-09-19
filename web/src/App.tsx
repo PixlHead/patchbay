@@ -261,12 +261,23 @@ function WorkflowPage({
                           <div className="step-definition">
                             <div className="step-title">
                               <h3>{step.name}</h3>
-                              <span className="type-label">HTTP CHECK</span>
+                              <span className="type-label">
+                                {step.type === 'tcp.check' ? 'TCP CHECK' : 'HTTP CHECK'}
+                              </span>
                             </div>
-                            <code className="endpoint">GET {step.config.url}</code>
+                            <code className="endpoint">
+                              {step.type === 'tcp.check'
+                                ? tcpEndpoint(step.config.host, step.config.port)
+                                : `GET ${step.config.url}`}
+                            </code>
                             <div className="step-settings">
                               <span>
-                                Expected <b>HTTP {step.config.expectedStatus}</b>
+                                Expected{' '}
+                                <b>
+                                  {step.type === 'tcp.check'
+                                    ? 'TCP connection'
+                                    : `HTTP ${step.config.expectedStatus}`}
+                                </b>
                               </span>
                               <span>
                                 Timeout <b>{step.config.timeoutMs.toLocaleString()} ms</b>
@@ -343,6 +354,7 @@ function WorkflowPage({
 
 function RunDetails({ run }: { run: Run }) {
   const unhealthy = run.steps.filter((step) => step.output && !step.output.healthy).length;
+  const hasTCP = run.steps.some((step) => step.output?.type === 'tcp.check');
   let timing = 'No completion recorded yet';
   if (run.status === 'queued') timing = 'Waiting for an execution slot';
   else if (!run.startedAt) timing = 'Never started';
@@ -359,9 +371,13 @@ function RunDetails({ run }: { run: Run }) {
         <span>{timing}</span>
         <span>
           {unhealthy > 0
-            ? `${unhealthy} unhealthy ${unhealthy === 1 ? 'service' : 'services'}`
+            ? hasTCP
+              ? `${unhealthy} ${unhealthy === 1 ? 'check did' : 'checks did'} not pass`
+              : `${unhealthy} unhealthy ${unhealthy === 1 ? 'service' : 'services'}`
             : run.status === 'succeeded'
-              ? 'All services healthy'
+              ? hasTCP
+                ? 'All checks passed'
+                : 'All services healthy'
               : ''}
         </span>
       </div>
@@ -384,8 +400,16 @@ function RunDetails({ run }: { run: Run }) {
           ? 'This run will start automatically when an execution slot is available.'
           : run.status === 'interrupted'
             ? 'Patchbay restarted before this run’s completion was recorded. Saved results are preserved; steps were not resumed.'
-            : 'Completed means the checks finished. Each service has its own health result.'}
+            : hasTCP
+              ? 'Completed means the checks finished. Each check has its own result.'
+              : 'Completed means the checks finished. Each service has its own health result.'}
       </p>
+      {hasTCP && (
+        <p className="result-help">
+          A TCP connection confirms the port accepts connections; it does not verify application
+          health.
+        </p>
+      )}
       <details className="definition">
         <summary>View execution JSON</summary>
         <pre>{JSON.stringify(run, null, 2)}</pre>
@@ -401,7 +425,13 @@ function StepResult({ step }: { step: StepRun }) {
         <h4>{step.name}</h4>
         {step.output ? (
           <span className={`badge ${step.output.healthy ? 'healthy' : 'unhealthy'}`}>
-            {step.output.healthy ? 'Healthy' : 'Unhealthy'}
+            {step.output.type === 'tcp.check'
+              ? step.output.healthy
+                ? 'Connected'
+                : 'Unreachable'
+              : step.output.healthy
+                ? 'Healthy'
+                : 'Unhealthy'}
           </span>
         ) : (
           <Status status={step.status} />
@@ -410,15 +440,25 @@ function StepResult({ step }: { step: StepRun }) {
       {step.output && (
         <>
           <p>{step.output.reason}</p>
+          {step.output.type === 'tcp.check' && (
+            <code className="endpoint">{tcpEndpoint(step.output.host, step.output.port)}</code>
+          )}
           <div className="result-metrics">
             <span>
-              Response{' '}
+              {step.output.type === 'tcp.check' ? 'Connection' : 'Response'}{' '}
               <strong>
-                {step.output.statusCode ? `HTTP ${step.output.statusCode}` : 'No response'}
+                {step.output.type === 'tcp.check'
+                  ? step.output.healthy
+                    ? 'Accepted'
+                    : 'Not established'
+                  : step.output.statusCode
+                    ? `HTTP ${step.output.statusCode}`
+                    : 'No response'}
               </strong>
             </span>
             <span>
-              Time to headers <strong>{step.output.durationMs} ms</strong>
+              {step.output.type === 'tcp.check' ? 'Time to connect' : 'Time to headers'}{' '}
+              <strong>{step.output.durationMs} ms</strong>
             </span>
           </div>
         </>
@@ -426,6 +466,11 @@ function StepResult({ step }: { step: StepRun }) {
       {step.error && <p className="step-error">{step.error}</p>}
     </article>
   );
+}
+
+function tcpEndpoint(host: string, port: number) {
+  // Configuration stores IPv6 without brackets; add them around the host for display.
+  return `${host.includes(':') ? `[${host}]` : host}:${port}`;
 }
 
 function Status({ status }: { status: string }) {

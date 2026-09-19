@@ -52,14 +52,14 @@ func TestShutdownKeepsCompletedExecutionOutcome(t *testing.T) {
 				var executed []string
 				var finalAttempts []Run
 				// Unhealthy is still a successful execution of a check.
-				output := workflow.HTTPResult{Healthy: false, StatusCode: 503, Reason: "service unavailable"}
-				runner, err := New(1, 0, func(ctx context.Context, step workflow.Step) (workflow.HTTPResult, error) {
+				output := workflow.CheckResult{Healthy: false, StatusCode: 503, Reason: "service unavailable"}
+				runner, err := New(1, 0, func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
 					executed = append(executed, step.ID)
 					if test.phase == "executor" && step.ID == test.pauseStep {
 						close(paused)
 						<-ctx.Done()
 						if test.executorError != nil {
-							return workflow.HTTPResult{}, test.executorError
+							return workflow.CheckResult{}, test.executorError
 						}
 					}
 					return output, nil

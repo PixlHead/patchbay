@@ -1,4 +1,4 @@
-package nodes
+package httpcheck
 
 import (
 	"context"
@@ -11,29 +11,9 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
-)
 
-func TestHTTPReasonLimit(t *testing.T) {
-	const suffix = "... [truncated]"
-	for _, test := range []struct {
-		name, input, want string
-	}{
-		{"short", "Request failed: connection refused", "Request failed: connection refused"},
-		{"exact byte limit", strings.Repeat("a", maxHTTPReasonBytes), strings.Repeat("a", maxHTTPReasonBytes)},
-		{"over byte limit", strings.Repeat("a", maxHTTPReasonBytes+1), strings.Repeat("a", maxHTTPReasonBytes-len(suffix)) + suffix},
-		{"multibyte boundary", strings.Repeat("界", maxHTTPReasonBytes), strings.Repeat("界", (maxHTTPReasonBytes-len(suffix))/len("界")) + suffix},
-		{"invalid UTF-8", "before\xff\xfeafter", "before\uFFFDafter"},
-		// Replacing invalid bytes can grow text that originally fit the byte limit.
-		{"UTF-8 replacement grows text", strings.Repeat("\xffa", maxHTTPReasonBytes/2), strings.Repeat("\uFFFDa", (maxHTTPReasonBytes-len(suffix))/4) + suffix},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			got := limitHTTPReason(test.input)
-			if got != test.want || len(got) > maxHTTPReasonBytes || !utf8.ValidString(got) {
-				t.Fatalf("unexpected bounded reason: length=%d validUTF8=%v", len(got), utf8.ValidString(got))
-			}
-		})
-	}
-}
+	"patchbay/internal/nodes/resulttext"
+)
 
 func TestHTTPResponseLimits(t *testing.T) {
 	for _, test := range []struct {
@@ -41,8 +21,8 @@ func TestHTTPResponseLimits(t *testing.T) {
 		healthy, truncated         bool
 	}{
 		{"valid headers", "HTTP/1.1 200 OK\r\nX-Padding: " + strings.Repeat("a", maxHTTPHeaderBytes/2) + "\r\nContent-Length: 0\r\n\r\n", "Received expected HTTP 200", true, false},
-		{"malformed status", strings.Repeat("x", 3*maxHTTPReasonBytes) + "\r\n\r\n", "malformed HTTP response", false, true},
-		{"malformed header", "HTTP/1.1 200 OK\r\n" + strings.Repeat("x", 3*maxHTTPReasonBytes) + "\r\n\r\n", "malformed MIME header", false, true},
+		{"malformed status", strings.Repeat("x", 3*resulttext.MaxReasonBytes) + "\r\n\r\n", "malformed HTTP response", false, true},
+		{"malformed header", "HTTP/1.1 200 OK\r\n" + strings.Repeat("x", 3*resulttext.MaxReasonBytes) + "\r\n\r\n", "malformed MIME header", false, true},
 		{"oversized status", strings.Repeat("x", 2*maxHTTPHeaderBytes) + "\r\n\r\n", "response headers exceeded", false, false},
 		{"oversized headers", "HTTP/1.1 200 OK\r\nX-Padding: " + strings.Repeat("a", 2*maxHTTPHeaderBytes) + "\r\nContent-Length: 0\r\n\r\n", "response headers exceeded", false, false},
 	} {
@@ -63,7 +43,7 @@ func TestHTTPResponseLimits(t *testing.T) {
 				_, _ = io.WriteString(conn, test.response)
 			}))
 			defer server.Close()
-			node := NewHTTP()
+			node := New()
 			defer node.client.CloseIdleConnections()
 			step := checkStep(server.URL)
 			step.Config.TimeoutMS = 2000
@@ -74,7 +54,7 @@ func TestHTTPResponseLimits(t *testing.T) {
 			if (test.healthy && result.StatusCode != 200) || (!test.healthy && result.StatusCode != 0) {
 				t.Fatalf("invalid response status: %d", result.StatusCode)
 			}
-			if len(result.Reason) > maxHTTPReasonBytes || !utf8.ValidString(result.Reason) || strings.HasSuffix(result.Reason, "... [truncated]") != test.truncated {
+			if len(result.Reason) > resulttext.MaxReasonBytes || !utf8.ValidString(result.Reason) || strings.HasSuffix(result.Reason, "... [truncated]") != test.truncated {
 				t.Fatalf("response reason was not safely bounded: length=%d", len(result.Reason))
 			}
 		})
@@ -108,7 +88,7 @@ func TestHTTP2ResponseHeaderLimit(t *testing.T) {
 			server.EnableHTTP2 = true
 			server.StartTLS()
 			defer server.Close()
-			node := NewHTTP()
+			node := New()
 			defer node.client.CloseIdleConnections()
 			// Trust this fixture's certificate without disabling TLS verification.
 			roots := x509.NewCertPool()
@@ -118,7 +98,7 @@ func TestHTTP2ResponseHeaderLimit(t *testing.T) {
 			step.Config.TimeoutMS = 2000
 			result, err := node.Execute(context.Background(), step)
 			wantHealthy := !oversized
-			if err != nil || result.Healthy != wantHealthy || len(result.Reason) > maxHTTPReasonBytes || !utf8.ValidString(result.Reason) {
+			if err != nil || result.Healthy != wantHealthy || len(result.Reason) > resulttext.MaxReasonBytes || !utf8.ValidString(result.Reason) {
 				t.Fatalf("HTTP/2 header limit was not enforced: %+v, %v", result, err)
 			}
 			if oversized && (result.StatusCode != 0 || !strings.Contains(result.Reason, "header list")) {

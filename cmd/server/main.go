@@ -15,7 +15,8 @@ import (
 
 	"patchbay/internal/engine"
 	"patchbay/internal/httpapi"
-	"patchbay/internal/nodes"
+	"patchbay/internal/nodes/httpcheck"
+	"patchbay/internal/nodes/tcpcheck"
 	"patchbay/internal/store"
 	"patchbay/internal/workflow"
 )
@@ -97,8 +98,9 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 		slog.Info("marked unfinished runs interrupted", "runs", interrupted)
 	}
 
-	httpNode := nodes.NewHTTP()
-	runner, err := engine.New(maxActiveRuns, maxQueuedRuns, httpNode.Execute, func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
+	httpNode := httpcheck.New()
+	tcpNode := tcpcheck.New()
+	runner, err := engine.New(maxActiveRuns, maxQueuedRuns, checkExecutor(httpNode, tcpNode), func(ctx context.Context, run engine.Run, definition workflow.Definition) error {
 		return store.CreateRun(ctx, db, run, definition)
 	}, func(ctx context.Context, run engine.Run) error {
 		return store.UpdateRun(ctx, db, run)
@@ -131,4 +133,18 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 		}
 	}
 	return nil
+}
+
+// Keep dispatch explicit while the app has just two check executors.
+func checkExecutor(httpNode *httpcheck.Executor, tcpNode *tcpcheck.Executor) engine.ExecuteStep {
+	return func(ctx context.Context, step workflow.Step) (workflow.CheckResult, error) {
+		switch step.Type {
+		case "http.check":
+			return httpNode.Execute(ctx, step)
+		case "tcp.check":
+			return tcpNode.Execute(ctx, step)
+		default:
+			return workflow.CheckResult{}, fmt.Errorf("unsupported step type %q", step.Type)
+		}
+	}
 }
