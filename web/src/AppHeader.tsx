@@ -1,3 +1,5 @@
+import { Link } from '@tanstack/react-router';
+
 type AppHeaderProps = {
   page: 'workflows' | 'canvas';
   loading?: boolean;
@@ -14,12 +16,8 @@ export default function AppHeader({ page, loading = false, disconnected = false 
         Patchbay
       </div>
       <nav className="page-nav" aria-label="Pages">
-        <a href="#/workflows" aria-current={page === 'workflows' ? 'page' : undefined}>
-          Workflows
-        </a>
-        <a href="#/canvas" aria-current={page === 'canvas' ? 'page' : undefined}>
-          New workflow
-        </a>
+        <Link to="/workflows">Workflows</Link>
+        <Link to="/canvas">New workflow</Link>
       </nav>
       <div className="topbar-meta">
         <span className="milestone">M0</span>

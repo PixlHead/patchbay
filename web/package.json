@@ -12,6 +12,8 @@
     "format": "prettier --write src tests index.html *.json *.ts"
   },
   "dependencies": {
+    "@tanstack/react-query": "5.103.2",
+    "@tanstack/react-router": "1.170.39",
     "@xyflow/react": "12.11.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"

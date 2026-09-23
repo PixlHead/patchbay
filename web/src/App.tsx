@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Outlet, useNavigate } from '@tanstack/react-router';
 import AppHeader from './AppHeader';
 import CanvasPage from './CanvasPage';
 import WorkflowCanvas from './WorkflowCanvas';
@@ -19,19 +21,34 @@ const statusLabel: Record<string, string> = {
   skipped: 'Skipped',
 };
 
+type Workspace = {
+  workflowId: string;
+  selectWorkflow: (id: string) => void;
+  localWorkflows: LocalWorkflow[];
+  canvasDrafts: CanvasDrafts;
+  setCanvasDrafts: Dispatch<SetStateAction<CanvasDrafts>>;
+  newWorkflow: CanvasDraft;
+  setNewWorkflow: Dispatch<SetStateAction<CanvasDraft>>;
+  createDraft: () => void;
+};
+
+const WorkspaceContext = createContext<Workspace | null>(null);
+
+function useWorkspace(): Workspace {
+  const workspace = useContext(WorkspaceContext);
+  if (!workspace) throw new Error('useWorkspace needs the App route component above it.');
+  return workspace;
+}
+
+// The router renders App once at the root and swaps pages inside Outlet, so the state kept
+// here survives navigation and API polling. Unmounting the runner stops polling while the
+// New workflow page is open.
 export default function App() {
-  // Hash navigation works with the existing Go file server without backend routes.
-  const [page, setPage] = useState(() => window.location.hash);
+  const navigate = useNavigate();
   const [workflowId, setWorkflowId] = useState('');
   const [localWorkflows, setLocalWorkflows] = useState<LocalWorkflow[]>([]);
   const [canvasDrafts, setCanvasDrafts] = useState<CanvasDrafts>({});
   const [newWorkflow, setNewWorkflow] = useState<CanvasDraft>({ name: '', nodes: [] });
-
-  useEffect(() => {
-    const navigate = () => setPage(window.location.hash);
-    window.addEventListener('hashchange', navigate);
-    return () => window.removeEventListener('hashchange', navigate);
-  }, []);
 
   function createDraft() {
     const name = newWorkflow.name.trim();
@@ -49,20 +66,47 @@ export default function App() {
     setCanvasDrafts((current) => ({ ...current, [id]: { ...newWorkflow, name } }));
     setWorkflowId(id);
     setNewWorkflow({ name: '', nodes: [] });
-    window.location.hash = '#/workflows';
+    void navigate({ to: '/workflows' });
   }
 
-  // Canvas state lives above both pages, so navigation and API polling cannot reset it.
-  // Unmounting the runner stops polling while the New workflow page is open.
-  return page === '#/canvas' ? (
-    <CanvasPage draft={newWorkflow} onChange={setNewWorkflow} onCreate={createDraft} />
-  ) : (
+  return (
+    <WorkspaceContext
+      value={{
+        workflowId,
+        selectWorkflow: setWorkflowId,
+        localWorkflows,
+        canvasDrafts,
+        setCanvasDrafts,
+        newWorkflow,
+        setNewWorkflow,
+        createDraft,
+      }}
+    >
+      <Outlet />
+    </WorkspaceContext>
+  );
+}
+
+export function WorkflowsRoute() {
+  const workspace = useWorkspace();
+  return (
     <WorkflowPage
-      localWorkflows={localWorkflows}
-      canvasDrafts={canvasDrafts}
-      setCanvasDrafts={setCanvasDrafts}
-      workflowId={workflowId}
-      onSelectWorkflow={setWorkflowId}
+      localWorkflows={workspace.localWorkflows}
+      canvasDrafts={workspace.canvasDrafts}
+      setCanvasDrafts={workspace.setCanvasDrafts}
+      workflowId={workspace.workflowId}
+      onSelectWorkflow={workspace.selectWorkflow}
+    />
+  );
+}
+
+export function CanvasRoute() {
+  const workspace = useWorkspace();
+  return (
+    <CanvasPage
+      draft={workspace.newWorkflow}
+      onChange={workspace.setNewWorkflow}
+      onCreate={workspace.createDraft}
     />
   );
 }
@@ -82,43 +126,46 @@ function WorkflowPage({
   workflowId,
   onSelectWorkflow,
 }: WorkflowPageProps) {
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const queryClient = useQueryClient();
   const [runId, setRunId] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [starting, setStarting] = useState(false);
-  const [connectionError, setConnectionError] = useState('');
-  const [actionError, setActionError] = useState('');
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    // A recursive timeout avoids overlapping requests. Abort cleans up on unmount.
-    async function refresh() {
-      try {
-        const [definitions, history] = await Promise.all([
-          request<Workflow[]>('/workflows', { signal: controller.signal }),
-          request<Run[]>('/runs', { signal: controller.signal }),
-        ]);
-        if (controller.signal.aborted) return;
-        setWorkflows(definitions);
-        setRuns(history);
-        setConnectionError('');
-      } catch (error) {
-        if (!controller.signal.aborted) setConnectionError(errorMessage(error));
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-          timer = setTimeout(refresh, 1000);
-        }
-      }
-    }
-    void refresh();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, []);
+  // Both lists refresh once per second while this page is mounted. A refresh still in
+  // flight is reused, so requests never overlap. Leaving the page stops the polling.
+  const workflowsQuery = useQuery({
+    queryKey: ['workflows'],
+    queryFn: ({ signal }) => request<Workflow[]>('/workflows', { signal }),
+    refetchInterval: 1000,
+  });
+  const runsQuery = useQuery({
+    queryKey: ['runs'],
+    queryFn: ({ signal }) => request<Run[]>('/runs', { signal }),
+    refetchInterval: 1000,
+  });
+
+  // Saved running statuses can outlive a server process; Start enforces capacity.
+  const startMutation = useMutation({
+    mutationFn: (id: string) =>
+      request<Run>(`/workflows/${encodeURIComponent(id)}/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    onSuccess: (run) => {
+      // Show the new run at once; the next poll replaces the list with the server order.
+      queryClient.setQueryData<Run[]>(['runs'], (previous = []) => [
+        run,
+        ...previous.filter((item) => item.id !== run.id),
+      ]);
+      setRunId(run.id);
+    },
+  });
+
+  const workflows = workflowsQuery.data ?? [];
+  const runs = runsQuery.data ?? [];
+  const loading = workflowsQuery.isPending || runsQuery.isPending;
+  const connectionFailure = workflowsQuery.error ?? runsQuery.error;
+  const connectionError = connectionFailure ? errorMessage(connectionFailure) : '';
+  const starting = startMutation.isPending;
+  const actionError = startMutation.error ? errorMessage(startMutation.error) : '';
 
   const availableWorkflows: (Workflow | LocalWorkflow)[] = [...workflows, ...localWorkflows];
   const selected = availableWorkflows.find((w) => w.id === workflowId) ?? availableWorkflows[0];
@@ -126,23 +173,9 @@ function WorkflowPage({
   const history = runs.filter((run) => run.workflowId === selected?.id);
   const inspectedRun = history.find((run) => run.id === runId) ?? history[0];
 
-  // Saved running statuses can outlive a server process; Start enforces capacity.
-  async function startRun() {
+  function startRun() {
     if (!savedWorkflow) return;
-    setStarting(true);
-    setActionError('');
-    try {
-      const run = await request<Run>(`/workflows/${encodeURIComponent(savedWorkflow.id)}/runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      setRuns((previous) => [run, ...previous.filter((item) => item.id !== run.id)]);
-      setRunId(run.id);
-    } catch (error) {
-      setActionError(errorMessage(error));
-    } finally {
-      setStarting(false);
-    }
+    startMutation.mutate(savedWorkflow.id);
   }
 
   return (
@@ -164,7 +197,7 @@ function WorkflowPage({
                 onClick={() => {
                   onSelectWorkflow(workflow.id);
                   setRunId('');
-                  setActionError('');
+                  startMutation.reset();
                 }}
               >
                 <span className="workflow-number">{String(index + 1).padStart(2, '0')}</span>
@@ -227,7 +260,7 @@ function WorkflowPage({
                   <button
                     className="run-button"
                     disabled={starting || !!connectionError}
-                    onClick={() => void startRun()}
+                    onClick={startRun}
                   >
                     <span aria-hidden="true">▶</span>
                     {starting ? 'Starting…' : 'Run workflow'}

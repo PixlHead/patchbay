@@ -51,7 +51,9 @@ behavior changes.
 | `internal/store/` | SQLite schema, transactions, reads, startup interruption cleanup |
 | `internal/httpapi/` | HTTP routes, history responses, request-host validation |
 | `web/src/api.ts` | Explicit TypeScript API types and request helper |
-| `web/src/App.tsx` | Polling, workflow selection, history/results, canvas draft ownership |
+| `web/src/router.tsx` | Route tree, hash history, and router type registration (TanStack Router) |
+| `web/src/queryClient.ts` | TanStack Query defaults: no retries, background polling, loopback-safe network mode |
+| `web/src/App.tsx` | Root route: shared workspace state; polled queries, run start, workflow selection, history/results |
 | `web/src/WorkflowCanvas.tsx`, `CanvasPage.tsx`, `canvasDraft.ts` | Frontend-only canvas/draft behavior |
 | `workflows/`, `examples/` | Loaded workflow files and configuration templates |
 | `web/tests/` | Playwright checks and their workflow fixtures |

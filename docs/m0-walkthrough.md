@@ -96,10 +96,12 @@ That is why the UI can show both **Completed** and **Unhealthy** for one run.
 
 ## 7. Polling reads the execution trail
 
-The React effect refreshes the definitions and recent run list once per second.
-It uses a recursive timeout, so a slow refresh does not start overlapping refreshes.
-Cleanup aborts its requests when the component unmounts. Connection failures remain
-visible and retry automatically.
+Two TanStack Query hooks in `web/src/App.tsx` refresh the definitions and the recent
+run list once per second. A refresh that is still in flight is reused, so a slow
+refresh does not start overlapping refreshes. Leaving the workflows page stops the
+polling and keeps the last lists cached. Connection failures remain visible and
+retry automatically; `web/src/queryClient.ts` holds the settings that keep that
+behavior explicit.
 
 The run list is newest first. Selecting another workflow filters that history;
 selecting a past run displays its results. A browser reload preserves history while

@@ -36,3 +36,11 @@ up:
 down:
 	docker compose down --remove-orphans
 	docker ps
+
+# cleanup:
+# 	rm -rf .cache
+# 	rm -rf bin
+# 	rm -rf web/dist
+# 	rm -rf web/node_modules
+# 	rm -rf web/test-results
+# 	docker volume rm patchbay_data

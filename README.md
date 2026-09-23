@@ -203,6 +203,12 @@ The existing backend requests and execution behavior are unchanged.
 `web/src/canvasDraft.ts` defines draft data and maps saved steps into nodes.
 `web/src/App.tsx` owns draft state by workflow ID across page navigation.
 `web/src/CanvasPage.tsx` provides the New workflow form.
+`web/src/router.tsx` declares the pages as [TanStack Router](https://tanstack.com/router)
+routes with hash URLs, so the Go file server needs no fallback route. An unknown
+address shows a not-found page with a link back to the workflows.
+`web/src/queryClient.ts` configures [TanStack Query](https://tanstack.com/query),
+which refreshes the workflow and run lists once per second while the workflows
+page is open and keeps the last lists cached while you visit the canvas page.
 
 ## Example workflows
 
@@ -333,7 +339,9 @@ internal/nodes/resulttext/      Shared bounded result messages and their tests
 internal/engine/runner.go       Run steps sequentially; save execution progress
 internal/httpapi/api.go         Map HTTP routes to execution and saved history
 web/src/api.ts                 TypeScript API types and fetch helper
-web/src/App.tsx                Workflow selection, polling, run/result views
+web/src/router.tsx             Page routes and hash history (TanStack Router)
+web/src/queryClient.ts         TanStack Query defaults for polling
+web/src/App.tsx                Root route state, workflow selection, polling, run/result views
 web/src/style.css              Responsive interface styling
 workflows/                    Normal workflow definitions (one starter check)
 examples/                     Templates for checking your own services
