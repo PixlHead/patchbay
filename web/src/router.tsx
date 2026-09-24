@@ -5,8 +5,10 @@ import {
   createRouter,
   redirect,
 } from '@tanstack/react-router';
-import App, { CanvasRoute, WorkflowsRoute } from './App';
-import NotFoundPage from './NotFoundPage';
+import App from './App';
+import CanvasPage from './pages/CanvasPage';
+import NotFoundPage from './pages/NotFoundPage';
+import WorkflowsPage from './pages/WorkflowsPage';
 
 const rootRoute = createRootRoute({ component: App, notFoundComponent: NotFoundPage });
 
@@ -21,13 +23,13 @@ const indexRoute = createRoute({
 const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows',
-  component: WorkflowsRoute,
+  component: WorkflowsPage,
 });
 
 const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/canvas',
-  component: CanvasRoute,
+  component: CanvasPage,
 });
 
 const routeTree = rootRoute.addChildren([indexRoute, workflowsRoute, canvasRoute]);

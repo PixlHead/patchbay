@@ -1,14 +1,9 @@
-import AppHeader from './AppHeader';
-import WorkflowCanvas from './WorkflowCanvas';
-import type { CanvasDraft, UpdateCanvasDraft } from './canvasDraft';
+import AppHeader from '../components/AppHeader';
+import WorkflowCanvas from '../components/WorkflowCanvas';
+import { useWorkspace } from '../workspace';
 
-type CanvasPageProps = {
-  draft: CanvasDraft;
-  onChange: UpdateCanvasDraft;
-  onCreate: () => void;
-};
-
-export default function CanvasPage({ draft, onChange, onCreate }: CanvasPageProps) {
+export default function CanvasPage() {
+  const { newWorkflow: draft, setNewWorkflow: onChange, createDraft } = useWorkspace();
   return (
     <div className="app-shell">
       <AppHeader page="canvas" />
@@ -27,7 +22,7 @@ export default function CanvasPage({ draft, onChange, onCreate }: CanvasPageProp
           className="new-workflow-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (draft.name.trim()) onCreate();
+            if (draft.name.trim()) createDraft();
           }}
         >
           <label className="workflow-name-field">

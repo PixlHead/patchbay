@@ -44,8 +44,8 @@ authoring loop for M0.
 
 ## 3. The browser requests execution
 
-`web/src/App.tsx` has a `startRun` function. It POSTs to the selected workflow's run
-endpoint, saves the returned run ID, and displays the execution. The button is
+`web/src/pages/WorkflowsPage.tsx` has a `startRun` function. It POSTs to the selected
+workflow's run endpoint, saves the returned run ID, and displays the execution. The button is
 disabled while a run is active, but the backend also enforces that limit because
 there could be another browser tab or a direct API client.
 
@@ -96,8 +96,8 @@ That is why the UI can show both **Completed** and **Unhealthy** for one run.
 
 ## 7. Polling reads the execution trail
 
-Two TanStack Query hooks in `web/src/App.tsx` refresh the definitions and the recent
-run list once per second. A refresh that is still in flight is reused, so a slow
+Two TanStack Query hooks in `web/src/pages/WorkflowsPage.tsx` refresh the definitions
+and the recent run list once per second. A refresh that is still in flight is reused, so a slow
 refresh does not start overlapping refreshes. Leaving the workflows page stops the
 polling and keeps the last lists cached. Connection failures remain visible and
 retry automatically; `web/src/queryClient.ts` holds the settings that keep that

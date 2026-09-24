@@ -199,10 +199,10 @@ Canvas editing does not modify or execute the saved workflows. For existing
 workflows, **Run workflow** still uses the saved steps shown below the canvas.
 The existing backend requests and execution behavior are unchanged.
 
-`web/src/WorkflowCanvas.tsx` is the shared canvas component.
+`web/src/components/WorkflowCanvas.tsx` is the shared canvas component.
 `web/src/canvasDraft.ts` defines draft data and maps saved steps into nodes.
 `web/src/App.tsx` owns draft state by workflow ID across page navigation.
-`web/src/CanvasPage.tsx` provides the New workflow form.
+`web/src/pages/CanvasPage.tsx` provides the New workflow form.
 `web/src/router.tsx` declares the pages as [TanStack Router](https://tanstack.com/router)
 routes with hash URLs, so the Go file server needs no fallback route. An unknown
 address shows a not-found page with a link back to the workflows.
@@ -341,7 +341,10 @@ internal/httpapi/api.go         Map HTTP routes to execution and saved history
 web/src/api.ts                 TypeScript API types and fetch helper
 web/src/router.tsx             Page routes and hash history (TanStack Router)
 web/src/queryClient.ts         TanStack Query defaults for polling
-web/src/App.tsx                Root route state, workflow selection, polling, run/result views
+web/src/App.tsx                Root route: shared workspace state and draft creation
+web/src/pages/                 WorkflowsPage (polling, run start, selection), CanvasPage, NotFoundPage
+web/src/components/            Header, sidebar, step list, execution history, run details, canvas
+web/src/format.ts              Labels, timing, summaries, and check-result presentation
 web/src/style.css              Responsive interface styling
 workflows/                    Normal workflow definitions (one starter check)
 examples/                     Templates for checking your own services

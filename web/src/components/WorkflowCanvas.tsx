@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { applyNodeChanges, Background, Controls, ReactFlow } from '@xyflow/react';
-import type { CanvasDraft, CanvasNode, UpdateCanvasDraft } from './canvasDraft';
-import { makeCanvasNode, nodePosition, nodeTypes } from './canvasDraft';
+import type { CanvasDraft, CanvasNode, UpdateCanvasDraft } from '../canvasDraft';
+import { makeCanvasNode, nodePosition, nodeTypes } from '../canvasDraft';
 
 type WorkflowCanvasProps = {
   draft: CanvasDraft;

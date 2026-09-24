@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router';
-import AppHeader from './AppHeader';
+import AppHeader from '../components/AppHeader';
 
 export default function NotFoundPage() {
   return (
