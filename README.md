@@ -201,8 +201,10 @@ Canvas editing does not modify or execute the saved workflows. For existing
 workflows, **Run workflow** still uses the saved steps shown below the canvas.
 The existing backend requests and execution behavior are unchanged.
 
-`web/src/components/WorkflowCanvas.tsx` is the shared canvas component.
-`web/src/canvasDraft.ts` defines draft data and maps saved steps into nodes.
+`web/src/components/WorkflowCanvas.tsx` is the shared canvas component, and
+`web/src/components/CanvasNode.tsx` draws each node with Tailwind classes.
+`web/src/canvasDraft.ts` defines draft data, maps saved steps into nodes, and
+picks the accent color for each node kind.
 `web/src/App.tsx` owns draft state by workflow ID across page navigation.
 `web/src/pages/CanvasPage.tsx` provides the New workflow form.
 `web/src/router.tsx` declares the pages as [TanStack Router](https://tanstack.com/router)
@@ -345,10 +347,9 @@ web/src/router.tsx             Page routes and hash history (TanStack Router)
 web/src/queryClient.ts         TanStack Query defaults for polling
 web/src/App.tsx                Root route: shared workspace state and draft creation
 web/src/pages/                 WorkflowsPage (polling, run start, selection), CanvasPage, NotFoundPage
-web/src/components/            Header, sidebar, step list, execution history, run details, badges, canvas
+web/src/components/            Header, page heading, sidebar, step list, run history and details, badges, canvas
 web/src/format.ts              Labels, timing, summaries, and check-result presentation
-web/src/index.css              Tailwind entry: theme tokens and base element rules
-web/src/style.css              Named-class styles still used by the canvas and not-found pages
+web/src/index.css              The only stylesheet: Tailwind entry, theme tokens, base rules
 workflows/                    Normal workflow definitions (one starter check)
 examples/                     Templates for checking your own services
 web/tests/fixtures/           Workflow data used only by browser tests

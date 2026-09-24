@@ -75,7 +75,7 @@
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
-    /* The named-class stylesheets size their rows for the browser default line height. */
+    /* Rows are sized for the browser default; text-2xs elements inherit this line height. */
     line-height: normal;
   }
   body {
@@ -127,5 +127,18 @@
   summary:focus-visible {
     outline: 3px solid var(--color-focus);
     outline-offset: 4px;
+  }
+}
+
+@layer components {
+  /* React Flow styles its canvas, handles, and controls from these variables. */
+  .react-flow {
+    --xy-background-color: var(--color-flow);
+    --xy-background-pattern-color: var(--color-flow-dots);
+    --xy-handle-background-color: var(--color-node-handle);
+    --xy-handle-border-color: var(--color-white);
+    --xy-controls-button-background-color: var(--color-surface);
+    --xy-controls-button-color: var(--color-text-secondary);
+    --xy-controls-button-border-color: var(--color-border-muted);
   }
 }

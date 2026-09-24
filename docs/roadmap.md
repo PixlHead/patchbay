@@ -80,7 +80,7 @@ The agent box belongs to a later milestone. Start with normal function calls and
 | Area | Proposed choice and reason |
 | --- | --- |
 | Backend | Go, `net/http`, `context`, `log/slog`, and a small explicit dependency setup in `main` |
-| Frontend | React, TypeScript, Vite, React Flow, TanStack Router, and TanStack Query; the graph library supplies selection, dragging, connections, and custom node components. Tailwind CSS is the agreed next frontend increment |
+| Frontend | React, TypeScript, Vite, React Flow, TanStack Router, TanStack Query, and Tailwind CSS; the graph library supplies selection, dragging, connections, and custom node components |
 | Storage | SQLite through `database/sql`, explicit SQL queries, and versioned migrations |
 | Scheduling | `robfig/cron/v3` for parsing and time calculations; the application owns admission, overlap, and restart policy |
 | SSH | `golang.org/x/crypto/ssh`, verified host keys, saved connections, timeouts, and captured output |

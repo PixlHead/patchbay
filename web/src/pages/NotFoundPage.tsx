@@ -1,20 +1,22 @@
 import { Link } from '@tanstack/react-router';
 import AppHeader from '../components/AppHeader';
+import { wideMainClass } from '../components/classes';
+import PageHeading from '../components/PageHeading';
 
 export default function NotFoundPage() {
   return (
-    <div className="app-shell">
+    <div>
       <AppHeader page="workflows" />
-      <main className="canvas-page">
-        <div className="canvas-heading">
-          <div>
-            <div className="eyebrow">NOT FOUND</div>
-            <h1>Page not found</h1>
-            <p>
+      <main className={wideMainClass}>
+        <PageHeading
+          eyebrow="NOT FOUND"
+          title="Page not found"
+          description={
+            <>
               This address does not match a page. <Link to="/workflows">Go to workflows</Link>.
-            </p>
-          </div>
-        </div>
+            </>
+          }
+        />
       </main>
     </div>
   );

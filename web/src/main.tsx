@@ -5,8 +5,6 @@ import { RouterProvider } from '@tanstack/react-router';
 import { queryClient } from './queryClient';
 import { router } from './router';
 import './index.css';
-import './style.css';
-import './canvas.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

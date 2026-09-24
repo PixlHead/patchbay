@@ -5,8 +5,10 @@ import type { Run, Workflow } from '../api';
 import { draftFromWorkflow } from '../canvasDraft';
 import type { LocalWorkflow } from '../canvasDraft';
 import AppHeader from '../components/AppHeader';
+import Breadcrumb from '../components/Breadcrumb';
 import ErrorBanner from '../components/ErrorBanner';
 import ExecutionHistory from '../components/ExecutionHistory';
+import PageHeading from '../components/PageHeading';
 import Sidebar from '../components/Sidebar';
 import StepList from '../components/StepList';
 import WorkflowCanvas from '../components/WorkflowCanvas';
@@ -101,32 +103,26 @@ export default function WorkflowsPage() {
           )}
           {selected && (
             <>
-              <div className="mb-[22px] text-xs text-text-faint md:mb-[30px]">
-                Workspace <span className="px-2.5 text-text-separator">/</span> Workflows
-              </div>
-              <div className="mb-[22px] flex flex-col items-start gap-[18px] md:mb-[30px] lg:flex-row lg:items-center lg:justify-between lg:gap-6">
-                <div>
-                  <div className="mb-2.5 text-2xs font-semibold tracking-[1.8px] text-text-muted">
-                    {savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}
-                  </div>
-                  <h1 className="text-2xl lg:text-3xl">{selected.name}</h1>
-                  <p className="mt-3 max-w-[540px] text-xs leading-[1.7] text-text-muted">
-                    {selected.description}
-                  </p>
-                </div>
-                {savedWorkflow && (
-                  <button
-                    className="flex w-full shrink-0 items-center justify-center gap-2.5 rounded-[7px] border border-accent bg-accent px-[18px] py-3 text-xs font-medium text-white shadow-button enabled:hover:bg-accent-hover md:w-auto"
-                    disabled={starting || !!connectionError}
-                    onClick={startRun}
-                  >
-                    <span className="text-2xs" aria-hidden="true">
-                      ▶
-                    </span>
-                    {starting ? 'Starting…' : 'Run workflow'}
-                  </button>
-                )}
-              </div>
+              <Breadcrumb page="Workflows" />
+              <PageHeading
+                eyebrow={savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}
+                title={selected.name}
+                description={selected.description}
+                action={
+                  savedWorkflow && (
+                    <button
+                      className="flex w-full shrink-0 items-center justify-center gap-2.5 rounded-[7px] border border-accent bg-accent px-[18px] py-3 text-xs font-medium text-white shadow-button enabled:hover:bg-accent-hover md:w-auto"
+                      disabled={starting || !!connectionError}
+                      onClick={startRun}
+                    >
+                      <span className="text-2xs" aria-hidden="true">
+                        ▶
+                      </span>
+                      {starting ? 'Starting…' : 'Run workflow'}
+                    </button>
+                  )
+                }
+              />
 
               <WorkflowCanvas
                 key={selected.id}
