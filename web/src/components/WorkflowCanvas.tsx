@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { applyNodeChanges, Background, Controls, ReactFlow } from '@xyflow/react';
 import type { CanvasDraft, CanvasNode, UpdateCanvasDraft } from '../canvasDraft';
 import { makeCanvasNode, nodePosition, nodeTypes } from '../canvasDraft';
+import Badge from './Badge';
 
 type WorkflowCanvasProps = {
   draft: CanvasDraft;
@@ -55,7 +56,7 @@ export default function WorkflowCanvas({
       <div className="canvas-toolbar">
         <span>
           <strong>{draft.name || 'Untitled workflow'}</strong>
-          <span className="badge">Local draft</span>
+          <Badge tone="neutral">Local draft</Badge>
         </span>
         <span>
           {draft.nodes.length} {draft.nodes.length === 1 ? 'node' : 'nodes'} · No connections

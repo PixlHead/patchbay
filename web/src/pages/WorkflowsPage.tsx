@@ -5,12 +5,15 @@ import type { Run, Workflow } from '../api';
 import { draftFromWorkflow } from '../canvasDraft';
 import type { LocalWorkflow } from '../canvasDraft';
 import AppHeader from '../components/AppHeader';
+import ErrorBanner from '../components/ErrorBanner';
 import ExecutionHistory from '../components/ExecutionHistory';
 import Sidebar from '../components/Sidebar';
 import StepList from '../components/StepList';
 import WorkflowCanvas from '../components/WorkflowCanvas';
 import { errorMessage } from '../format';
 import { useWorkspace } from '../workspace';
+
+const emptyStateClass = 'px-5 py-[30px] text-center leading-[1.7] text-text-muted md:p-[38px]';
 
 export default function WorkflowsPage() {
   const { workflowId, selectWorkflow, localWorkflows, canvasDrafts, setCanvasDrafts } =
@@ -74,10 +77,10 @@ export default function WorkflowsPage() {
   }
 
   return (
-    <div className="app-shell">
+    <div>
       <AppHeader page="workflows" loading={loading} disconnected={!!connectionError} />
 
-      <div className="workspace">
+      <div className="flex min-h-[calc(100vh-76px)] flex-col md:grid md:grid-cols-[234px_minmax(0,1fr)] lg:grid-cols-[276px_minmax(0,1fr)]">
         <Sidebar
           workflows={availableWorkflows}
           selectedId={selected?.id}
@@ -85,43 +88,41 @@ export default function WorkflowsPage() {
           onSelect={chooseWorkflow}
         />
 
-        <main>
-          {connectionError && (
-            <div className="error-banner" role="alert">
-              {connectionError} Retrying automatically.
-            </div>
-          )}
-          {actionError && (
-            <div className="error-banner" role="alert">
-              {actionError}
-            </div>
-          )}
+        <main className="mx-auto w-full max-w-[1320px] self-start px-[18px] py-[22px] md:p-7 lg:px-[42px] lg:pt-[30px] lg:pb-5 2xl:pt-[42px]">
+          {connectionError && <ErrorBanner>{connectionError} Retrying automatically.</ErrorBanner>}
+          {actionError && <ErrorBanner>{actionError}</ErrorBanner>}
           {loading && (
-            <div className="empty-state" role="status">
+            <div className={emptyStateClass} role="status">
               Connecting to your workspace…
             </div>
           )}
           {!loading && !selected && !connectionError && (
-            <div className="empty-state">No workflows are available.</div>
+            <div className={emptyStateClass}>No workflows are available.</div>
           )}
           {selected && (
             <>
-              <div className="breadcrumb">
-                Workspace <span>/</span> Workflows
+              <div className="mb-[22px] text-xs text-text-faint md:mb-[30px]">
+                Workspace <span className="px-2.5 text-text-separator">/</span> Workflows
               </div>
-              <div className="page-heading">
+              <div className="mb-[22px] flex flex-col items-start gap-[18px] md:mb-[30px] lg:flex-row lg:items-center lg:justify-between lg:gap-6">
                 <div>
-                  <div className="eyebrow">{savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}</div>
-                  <h1>{selected.name}</h1>
-                  <p>{selected.description}</p>
+                  <div className="mb-2.5 text-2xs font-semibold tracking-[1.8px] text-text-muted">
+                    {savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}
+                  </div>
+                  <h1 className="text-2xl lg:text-3xl">{selected.name}</h1>
+                  <p className="mt-3 max-w-[540px] text-xs leading-[1.7] text-text-muted">
+                    {selected.description}
+                  </p>
                 </div>
                 {savedWorkflow && (
                   <button
-                    className="run-button"
+                    className="flex w-full shrink-0 items-center justify-center gap-2.5 rounded-[7px] border border-accent bg-accent px-[18px] py-3 text-xs font-medium text-white shadow-button enabled:hover:bg-accent-hover md:w-auto"
                     disabled={starting || !!connectionError}
                     onClick={startRun}
                   >
-                    <span aria-hidden="true">▶</span>
+                    <span className="text-2xs" aria-hidden="true">
+                      ▶
+                    </span>
                     {starting ? 'Starting…' : 'Run workflow'}
                   </button>
                 )}
@@ -151,7 +152,9 @@ export default function WorkflowsPage() {
               )}
             </>
           )}
-          <footer>Built for your homelab. Runs on your machine.</footer>
+          <footer className="mt-[30px] text-center text-2xs text-text-subtle">
+            Built for your homelab. Runs on your machine.
+          </footer>
         </main>
       </div>
     </div>

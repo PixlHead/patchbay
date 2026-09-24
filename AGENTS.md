@@ -55,10 +55,10 @@ behavior changes.
 | `web/src/queryClient.ts` | TanStack Query defaults: no retries, background polling, loopback-safe network mode |
 | `web/src/App.tsx`, `workspace.ts` | Root route: shared workspace state, draft creation, and the context the pages read |
 | `web/src/pages/` | Route components: `WorkflowsPage` (polled queries, run start, selection), `CanvasPage`, `NotFoundPage` |
-| `web/src/components/` | Presentational pieces: header, sidebar, step list, execution history, run details, canvas |
+| `web/src/components/` | Presentational pieces: header, sidebar, step list, execution history, run details, badges, error banner, JSON details, canvas; `classes.ts` holds the shared utility strings |
 | `web/src/format.ts` | Pure label, timing, summary, and check-result presentation helpers |
 | `web/src/index.css` | Tailwind entry: React Flow import, `@theme` tokens, base element rules |
-| `web/src/style.css`, `canvas.css` | Remaining named-class styles, unlayered, until the pages move to utilities |
+| `web/src/style.css`, `canvas.css` | Remaining named-class styles for the canvas and not-found pages, unlayered, until they move to utilities |
 | `web/src/canvasDraft.ts`, `components/WorkflowCanvas.tsx`, `pages/CanvasPage.tsx` | Frontend-only canvas/draft behavior |
 | `workflows/`, `examples/` | Loaded workflow files and configuration templates |
 | `web/tests/` | Playwright checks and their workflow fixtures |

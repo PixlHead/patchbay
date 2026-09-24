@@ -345,10 +345,10 @@ web/src/router.tsx             Page routes and hash history (TanStack Router)
 web/src/queryClient.ts         TanStack Query defaults for polling
 web/src/App.tsx                Root route: shared workspace state and draft creation
 web/src/pages/                 WorkflowsPage (polling, run start, selection), CanvasPage, NotFoundPage
-web/src/components/            Header, sidebar, step list, execution history, run details, canvas
+web/src/components/            Header, sidebar, step list, execution history, run details, badges, canvas
 web/src/format.ts              Labels, timing, summaries, and check-result presentation
 web/src/index.css              Tailwind entry: theme tokens and base element rules
-web/src/style.css              Responsive interface styling (named classes)
+web/src/style.css              Named-class styles still used by the canvas and not-found pages
 workflows/                    Normal workflow definitions (one starter check)
 examples/                     Templates for checking your own services
 web/tests/fixtures/           Workflow data used only by browser tests
