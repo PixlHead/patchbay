@@ -1,0 +1,131 @@
+@import 'tailwindcss';
+/* React Flow declares no cascade layer. Inside base, components and utilities can override it. */
+@import '@xyflow/react/dist/style.css' layer(base);
+
+@theme {
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SFMono-Regular', Consolas, monospace;
+
+  --text-2xs: 0.625rem;
+
+  --shadow-button: 0 2px 3px #17352612;
+  --shadow-node: 0 4px 14px #183e2710;
+
+  /* Only the project palette exists as utilities. */
+  --color-*: initial;
+  --color-white: #fff;
+
+  --color-canvas: #f4f6f5;
+  --color-surface: #fff;
+  --color-surface-muted: #fafbfa;
+  --color-surface-hover: #f1f5f1;
+  --color-surface-selected: #e8f1eb;
+  --color-surface-active: #f0f6f1;
+  --color-surface-inset: #eff5f1;
+  --color-surface-chip: #e9eeea;
+  --color-flow: #f6f8f5;
+  --color-flow-dots: #ccd8d0;
+
+  --color-border: #dee5e1;
+  --color-border-muted: #e9eee9;
+  --color-border-strong: #d3dfd6;
+
+  --color-ink: #172b32;
+  --color-ink-strong: #294638;
+  --color-ink-selected: #173d32;
+  --color-text-secondary: #5c7169;
+  --color-text-muted: #7b8880;
+  --color-text-faint: #829087;
+  --color-text-subtle: #98a499;
+  --color-text-separator: #bec6bf;
+
+  --color-accent: #1b4c3f;
+  --color-accent-hover: #286450;
+  --color-accent-deep: #153b39;
+  --color-accent-glow: #8ee4c9;
+  --color-accent-bar: #447e5f;
+  --color-focus: #55bdaa;
+  --color-online: #278567;
+  --color-offline: #b24b36;
+
+  --color-status-succeeded: #4e7160;
+  --color-status-succeeded-bg: #eaf1ec;
+  --color-status-queued: #9c651b;
+  --color-status-queued-bg: #fff0dd;
+  --color-status-running: #316b92;
+  --color-status-running-bg: #e9f3fb;
+  --color-status-failed: #a14539;
+  --color-status-failed-bg: #fbece8;
+  --color-healthy: #327049;
+  --color-healthy-bg: #e8f4ea;
+  --color-badge: #7b867d;
+  --color-badge-bg: #edf0ed;
+  --color-danger: #a14e32;
+  --color-danger-bg: #fff1e9;
+  --color-danger-border: #f0d6c6;
+
+  --color-node-http: #52896a;
+  --color-node-ssh: #61899d;
+  --color-node-discord: #8b7ca8;
+  --color-node-handle: #82998a;
+}
+
+@layer base {
+  html {
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* The named-class stylesheets size their rows for the browser default line height. */
+    line-height: normal;
+  }
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-size: 0.875rem;
+  }
+  a {
+    color: var(--color-accent);
+    text-decoration: underline;
+  }
+  /* Preflight makes headings inherit weight; the page design keeps them bold. */
+  h1,
+  h2,
+  h3 {
+    font-weight: 700;
+  }
+  h1 {
+    font-size: 1.875rem;
+    letter-spacing: -1px;
+    line-height: 1.25;
+  }
+  h2 {
+    font-size: 1rem;
+    letter-spacing: -0.25px;
+  }
+  h3 {
+    font-size: 0.875rem;
+  }
+  h4 {
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  code {
+    font-size: 0.75rem;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
+  button,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:focus-visible,
+  summary:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 4px;
+  }
+}

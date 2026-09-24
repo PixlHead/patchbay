@@ -57,6 +57,8 @@ behavior changes.
 | `web/src/pages/` | Route components: `WorkflowsPage` (polled queries, run start, selection), `CanvasPage`, `NotFoundPage` |
 | `web/src/components/` | Presentational pieces: header, sidebar, step list, execution history, run details, canvas |
 | `web/src/format.ts` | Pure label, timing, summary, and check-result presentation helpers |
+| `web/src/index.css` | Tailwind entry: React Flow import, `@theme` tokens, base element rules |
+| `web/src/style.css`, `canvas.css` | Remaining named-class styles, unlayered, until the pages move to utilities |
 | `web/src/canvasDraft.ts`, `components/WorkflowCanvas.tsx`, `pages/CanvasPage.tsx` | Frontend-only canvas/draft behavior |
 | `workflows/`, `examples/` | Loaded workflow files and configuration templates |
 | `web/tests/` | Playwright checks and their workflow fixtures |

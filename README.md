@@ -47,6 +47,8 @@ its saved history. Deleting the volume deletes that history.
 
 Prerequisites: Go 1.26+, Node 20.19+ or 22.12+, and npm. Node 24 LTS is a suitable
 choice for a fresh installation. Dependencies are pinned in `web/package-lock.json`.
+The interface is styled with [Tailwind CSS](https://tailwindcss.com) v4, which
+needs Safari 16.4, Chrome 111, or Firefox 128 or newer.
 
 ```sh
 make install
@@ -345,7 +347,8 @@ web/src/App.tsx                Root route: shared workspace state and draft crea
 web/src/pages/                 WorkflowsPage (polling, run start, selection), CanvasPage, NotFoundPage
 web/src/components/            Header, sidebar, step list, execution history, run details, canvas
 web/src/format.ts              Labels, timing, summaries, and check-result presentation
-web/src/style.css              Responsive interface styling
+web/src/index.css              Tailwind entry: theme tokens and base element rules
+web/src/style.css              Responsive interface styling (named classes)
 workflows/                    Normal workflow definitions (one starter check)
 examples/                     Templates for checking your own services
 web/tests/fixtures/           Workflow data used only by browser tests
