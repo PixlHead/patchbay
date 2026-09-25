@@ -27,6 +27,25 @@ Temporary test containers, networks, and image tags were removed. The existing
 development instance was not restarted. The obsolete auxiliary native binary
 was removed from `bin/`.
 
+## Verified September 24, 2026
+
+The frontend rebuild (TanStack Router, TanStack Query, and Tailwind CSS) landed
+in six increments. After each increment the owner ran these checks on the
+development machine, and all passed:
+
+- `make test`: Go race tests and `tsc --noEmit` under TypeScript 7.0.2.
+- `make build`: the production frontend through Vite 8 with the Tailwind plugin,
+  and the native binary.
+- `make e2e`: the 11 Playwright tests in Chromium, installed once into
+  `.cache/playwright`. The specs did not change during the rebuild.
+- `docker compose build` after the Tailwind wiring, which confirmed that the
+  lockfile carries the Alpine (musl) binary for Tailwind's native scanner.
+
+Static reviews compared each increment with the previous stylesheets, the
+Playwright contract, and the installed library sources; they are not test runs.
+The New workflow page and the not-found page have no Playwright coverage and
+rely on a manual check.
+
 ## Checks to run
 
 ```sh

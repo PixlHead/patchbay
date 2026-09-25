@@ -85,7 +85,7 @@ The agent box belongs to a later milestone. Start with normal function calls and
 | Scheduling | `robfig/cron/v3` for parsing and time calculations; the application owns admission, overlap, and restart policy |
 | SSH | `golang.org/x/crypto/ssh`, verified host keys, saved connections, timeouts, and captured output |
 | Scripts | `os/exec`, explicit executable/arguments or an explicit shell script, bounded output, and process cleanup |
-| UI updates | Polling in the skeleton; server-sent events for run status and logs when the engine is ready |
+| UI updates | Polling through TanStack Query today; server-sent events for run status and logs when the engine is ready. Before streaming, give the stream route its own write deadline, because `cmd/server/main.go` sets a 10-second `WriteTimeout` for every response, and write events into the TanStack Query cache instead of replacing it |
 | Deployment | A Docker image containing the Go server and built frontend assets; a named volume for application data |
 
 These choices follow the capabilities documented by [React Flow](https://reactflow.dev/learn/customization/custom-nodes), [Go's JSON package](https://pkg.go.dev/encoding/json), [the cron library](https://pkg.go.dev/github.com/robfig/cron/v3), [Go's SSH package](https://pkg.go.dev/golang.org/x/crypto/ssh), and [Go's command execution package](https://pkg.go.dev/os/exec). Pin dependency versions when creating the skeleton; this plan does not require a particular release number.
