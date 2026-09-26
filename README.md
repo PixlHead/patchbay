@@ -209,7 +209,8 @@ picks the accent color for each node kind.
 `web/src/pages/CanvasPage.tsx` provides the New workflow form.
 `web/src/router.tsx` declares the pages as [TanStack Router](https://tanstack.com/router)
 routes with hash URLs, so the Go file server needs no fallback route. An unknown
-address shows a not-found page with a link back to the workflows.
+address shows a not-found page with a link back to the workflows, and a page that
+fails while rendering shows an error page with a retry link instead of a blank screen.
 `web/src/queryClient.ts` configures [TanStack Query](https://tanstack.com/query),
 which refreshes the workflow and run lists once per second while the workflows
 page is open and keeps the last lists cached while you visit the canvas page.

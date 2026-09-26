@@ -43,8 +43,8 @@ development machine, and all passed:
 
 Static reviews compared each increment with the previous stylesheets, the
 Playwright contract, and the installed library sources; they are not test runs.
-The New workflow page and the not-found page have no Playwright coverage and
-rely on a manual check.
+The New workflow page and the not-found page have no Playwright coverage; the
+owner checked them by hand after the final increment.
 
 ## Checks to run
 

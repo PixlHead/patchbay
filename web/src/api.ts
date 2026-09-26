@@ -59,10 +59,16 @@ export type Run = {
 
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
-  if (!response.headers.get('content-type')?.includes('application/json')) {
+  const isJson = response.headers.get('content-type')?.includes('application/json') ?? false;
+  if (!response.ok) {
+    if (isJson) {
+      const data = (await response.json()) as { error?: string };
+      throw new Error(data.error ?? `Request failed (${response.status})`);
+    }
+    throw new Error(`Request failed (${response.status}). Check that the Go server is running.`);
+  }
+  if (!isJson) {
     throw new Error('The backend is unavailable. Check that the Go server is running.');
   }
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? `Request failed (${response.status})`);
-  return data as T;
+  return (await response.json()) as T;
 }

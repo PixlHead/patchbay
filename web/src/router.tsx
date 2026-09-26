@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-router';
 import App from './App';
 import CanvasPage from './pages/CanvasPage';
+import ErrorPage from './pages/ErrorPage';
 import NotFoundPage from './pages/NotFoundPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 
@@ -36,7 +37,11 @@ const routeTree = rootRoute.addChildren([indexRoute, workflowsRoute, canvasRoute
 
 // Hash history keeps every page load at "/", which the Go file server serves without a
 // fallback to index.html. Browser history needs that fallback in internal/httpapi first.
-export const router = createRouter({ routeTree, history: createHashHistory() });
+export const router = createRouter({
+  routeTree,
+  history: createHashHistory(),
+  defaultErrorComponent: ErrorPage,
+});
 
 // Registering the router gives Link, useNavigate, and redirect the route paths as types.
 declare module '@tanstack/react-router' {
