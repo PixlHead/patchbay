@@ -77,7 +77,7 @@ func TestMixedChecksPersistThroughAPIAndDatabaseReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	handler := httpapi.New(definitions, runner, db, "")
+	handler := httpapi.New(definitions, runner, nil, db, "")
 	request := httptest.NewRequest(http.MethodPost, "/api/workflows/mixed/runs", nil)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -120,7 +120,7 @@ func TestMixedChecksPersistThroughAPIAndDatabaseReopen(t *testing.T) {
 	}
 	defer idleRunner.Close()
 	// No current definitions or in-memory runs can supply the saved result type.
-	history := httpapi.New(nil, idleRunner, reopened, "")
+	history := httpapi.New(nil, idleRunner, nil, reopened, "")
 	response = httptest.NewRecorder()
 	history.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/runs/"+started.ID, nil))
 	var saved engine.Run

@@ -13,10 +13,14 @@ import (
 	"syscall"
 	"time"
 
+	// Workflow time zones must resolve on hosts without a system zoneinfo directory.
+	_ "time/tzdata"
+
 	"patchbay/internal/engine"
 	"patchbay/internal/httpapi"
 	"patchbay/internal/nodes/httpcheck"
 	"patchbay/internal/nodes/tcpcheck"
+	"patchbay/internal/schedule"
 	"patchbay/internal/store"
 	"patchbay/internal/workflow"
 )
@@ -109,14 +113,21 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 		return fmt.Errorf("create runner: %w", err)
 	}
 	defer runner.Close()
+	scheduler, err := schedule.New(definitions, runner.Start, schedule.SystemClock())
+	if err != nil {
+		return fmt.Errorf("create scheduler: %w", err)
+	}
+	// Deferred after the runner, so it stops asking for runs before the runner closes.
+	defer scheduler.Close()
 	server := &http.Server{
-		Addr: addr, Handler: hostGuard.Wrap(httpapi.New(definitions, runner, db, webDir)),
+		Addr: addr, Handler: hostGuard.Wrap(httpapi.New(definitions, runner, scheduler, db, webDir)),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
 		WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second,
 	}
 	defer server.Close() // Also closes connections if graceful shutdown times out.
 	errorsCh := make(chan error, 1)
 	go func() { errorsCh <- server.ListenAndServe() }()
+	scheduler.Start()
 	slog.Info("patchbay M0 starting", "address", addr, "workflows", len(definitions), "storage", "sqlite", "history", "sqlite", "database", dbPath, "max_active_runs", maxActiveRuns, "max_queued_runs", maxQueuedRuns)
 	select {
 	case err := <-errorsCh:
@@ -125,6 +136,7 @@ func runServer(ctx context.Context, addr, directory, webDir, dbPath string, maxA
 		}
 	case <-ctx.Done():
 		slog.Info("shutting down")
+		scheduler.Close()
 		runner.Close()
 		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelShutdown()

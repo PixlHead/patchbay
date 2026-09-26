@@ -107,6 +107,10 @@ func (r *Runner) Start(definition workflow.Definition) (Run, error) {
 		return Run{}, err
 	}
 	definition.Steps = slices.Clone(definition.Steps)
+	if definition.Schedule != nil {
+		schedule := *definition.Schedule
+		definition.Schedule = &schedule
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {

@@ -39,7 +39,7 @@ func TestHistorySurvivesDatabaseReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	handler := New(testDefinitions(), runner, db, t.TempDir())
+	handler := New(testDefinitions(), runner, nil, db, t.TempDir())
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/runs", nil))
 	var listed []engine.Run
@@ -139,7 +139,7 @@ func TestProgressSaveFailureReasonSurvivesDatabaseReopen(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer emptyRunner.Close()
-			handler := New(definitions, emptyRunner, db, t.TempDir())
+			handler := New(definitions, emptyRunner, nil, db, t.TempDir())
 			for _, route := range []string{"/api/runs", "/api/runs/" + started.ID} {
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, route, nil))
@@ -186,7 +186,7 @@ func TestEmptyAndMissingHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	handler := New(testDefinitions(), runner, db, t.TempDir())
+	handler := New(testDefinitions(), runner, nil, db, t.TempDir())
 	for _, test := range []struct {
 		path   string
 		status int
@@ -223,7 +223,7 @@ func TestHistoryReadFailuresReturnServerErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer runner.Close()
-			handler := New(testDefinitions(), runner, db, t.TempDir())
+			handler := New(testDefinitions(), runner, nil, db, t.TempDir())
 			for path, message := range map[string]string{
 				"/api/runs":       "could not load run history",
 				"/api/runs/saved": "could not load run",
@@ -295,7 +295,7 @@ func TestHistoryRecoversAfterFinalSaveFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := New(definitions, runner, db, t.TempDir())
+	handler := New(definitions, runner, nil, db, t.TempDir())
 	deadline := time.After(2 * time.Second)
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
@@ -403,7 +403,7 @@ func TestHistoryShowsUnsavedFinalResultWithoutHidingReadFailures(t *testing.T) {
 	if saved.Status != "running" || saved.FinishedAt != nil || saved.FinalSaveFailed {
 		t.Fatalf("fixture must leave only stale progress in SQLite: %+v", saved)
 	}
-	handler := New(testDefinitions(), runner, db, t.TempDir())
+	handler := New(testDefinitions(), runner, nil, db, t.TempDir())
 	for _, path := range []string{"/api/runs", "/api/runs/" + started.ID} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))

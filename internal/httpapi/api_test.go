@@ -51,7 +51,7 @@ func TestRunLifecycleSurvivesRequestEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	server := httptest.NewServer(New(definitions, runner, db, t.TempDir()))
+	server := httptest.NewServer(New(definitions, runner, nil, db, t.TempDir()))
 	defer server.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	req, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/api/workflows/test-workflow/runs", nil)
@@ -125,7 +125,7 @@ func TestRunSaveFailureReturnsServerError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	handler := New(testDefinitions(), runner, db, t.TempDir())
+	handler := New(testDefinitions(), runner, nil, db, t.TempDir())
 	request := httptest.NewRequest(http.MethodPost, "/api/workflows/test-workflow/runs", nil)
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -159,7 +159,7 @@ func TestAPIErrorResponses(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer runner.Close()
-	handler := New(definitions, runner, db, t.TempDir())
+	handler := New(definitions, runner, nil, db, t.TempDir())
 	tests := []struct {
 		method, path, contentType, body string
 		want                            int
@@ -221,7 +221,7 @@ func TestConcurrentAdmissionErrorsAndShutdownPersistence(t *testing.T) {
 		definition.ID = id
 		definitions = append(definitions, definition)
 	}
-	handler := New(definitions, runner, db, t.TempDir())
+	handler := New(definitions, runner, nil, db, t.TempDir())
 	for _, test := range []struct {
 		id      string
 		status  int

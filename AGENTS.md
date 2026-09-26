@@ -48,6 +48,7 @@ behavior changes.
 | `internal/nodes/tcpcheck/` | TCP executor and its tests |
 | `internal/nodes/resulttext/` | Shared bounded check-result text and its tests |
 | `internal/engine/` | Admission, bounded queue, execution state, progress/final saves |
+| `internal/schedule/` | Cron occurrence loops; scheduled starts go through the runner's admission |
 | `internal/store/` | SQLite schema, transactions, reads, startup interruption cleanup |
 | `internal/httpapi/` | HTTP routes, history responses, request-host validation |
 | `web/src/api.ts` | Explicit TypeScript API types and request helper |
@@ -64,8 +65,10 @@ behavior changes.
 
 The app currently executes `http.check` and `tcp.check` steps from startup-loaded JSON files.
 Different workflows can run concurrently; steps within a run remain sequential.
+A workflow file may carry a cron `schedule`; the scheduler starts each occurrence
+through the runner and skips an occurrence the runner rejects.
 Canvas nodes and new workflow drafts are frontend-only and are lost on reload.
-There is no demo service. SSH, scripts, Discord, scheduling, authentication,
+There is no demo service. SSH, scripts, Discord, authentication,
 backend graph authoring, and diagnostic agents remain planned work.
 PostgreSQL and optional high availability belong to later milestones; do not
 introduce their infrastructure while implementing the current SQLite features.
@@ -94,6 +97,9 @@ introduce their infrastructure while implementing the current SQLite features.
   a lock file to bypass another server's ownership.
 - Startup marks leftover queued/running records interrupted; it does not resume
   actions. Never infer that an uncertain external action is safe to repeat.
+- Scheduled starts call `Runner.Start` exactly as the API does. The scheduler
+  never executes steps, never retries a rejected occurrence, and never replays
+  occurrences missed during downtime. Stop the scheduler before the runner.
 - Preserve atomic run/step snapshots and existing data. Introduce deliberate
   versioned migrations when stored structure changes.
 - Verify database identity before migration or startup cleanup. Only initialize

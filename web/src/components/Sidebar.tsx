@@ -1,5 +1,6 @@
 import type { Workflow } from '../api';
 import type { CanvasDrafts, LocalWorkflow } from '../canvasDraft';
+import { triggerLabel } from '../format';
 
 type SidebarProps = {
   workflows: (Workflow | LocalWorkflow)[];
@@ -43,7 +44,7 @@ export default function Sidebar({ workflows, selectedId, canvasDrafts, onSelect 
               </strong>
               <small className="mt-[5px] block text-2xs text-text-muted">
                 {'steps' in workflow
-                  ? `${workflow.steps.length} ${workflow.steps.length === 1 ? 'step' : 'steps'} · Manual trigger`
+                  ? `${workflow.steps.length} ${workflow.steps.length === 1 ? 'step' : 'steps'} · ${triggerLabel(workflow)}`
                   : `${canvasDrafts[workflow.id]?.nodes.length ?? 0} nodes · Local draft`}
               </small>
             </span>

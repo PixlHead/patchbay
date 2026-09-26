@@ -18,11 +18,12 @@ import (
 const maxDefinitionBytes = 64 * 1024
 
 type Definition struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Steps         []Step `json:"steps"`
+	SchemaVersion int       `json:"schemaVersion"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Description   string    `json:"description"`
+	Schedule      *Schedule `json:"schedule,omitempty"`
+	Steps         []Step    `json:"steps"`
 }
 
 type Step struct {
@@ -65,6 +66,11 @@ func Validate(d Definition) error {
 	}
 	if !identifier.MatchString(d.ID) || strings.TrimSpace(d.Name) == "" {
 		return fmt.Errorf("workflow needs a name and an id of 1–64 lowercase letters, numbers, underscores or hyphens")
+	}
+	if d.Schedule != nil {
+		if _, err := NewTimetable(*d.Schedule); err != nil {
+			return err
+		}
 	}
 	if len(d.Steps) == 0 || len(d.Steps) > 20 {
 		return fmt.Errorf("workflow must contain 1–20 steps")

@@ -1,4 +1,4 @@
-import type { CheckOutput, Run, WorkflowStep } from './api';
+import type { CheckOutput, Run, Workflow, WorkflowStep } from './api';
 
 const statusLabels: Record<string, string> = {
   queued: 'Queued',
@@ -18,6 +18,20 @@ export function statusLabel(status: string): string {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+}
+
+export function triggerLabel(workflow: Workflow): string {
+  return workflow.schedule ? 'Scheduled' : 'Manual trigger';
+}
+
+// The next run shows in the browser's zone, named so it cannot be confused
+// with the schedule's own zone.
+export function scheduleSummary(workflow: Workflow): string {
+  if (!workflow.schedule) return '';
+  const summary = `Cron ${workflow.schedule.cron} (${workflow.schedule.timezone})`;
+  if (!workflow.nextRunAt) return summary;
+  const next = new Date(workflow.nextRunAt).toLocaleString(undefined, { timeZoneName: 'short' });
+  return `${summary} · Next run ${next}`;
 }
 
 export function tcpEndpoint(host: string, port: number): string {

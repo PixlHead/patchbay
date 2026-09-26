@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "my-service",
+  "name": "My service",
+  "description": "Set the URL to an HTTP health endpoint you control before running.",
+  "steps": [
+    {
+      "id": "health",
+      "name": "Check health",
+      "type": "http.check",
+      "config": {
+        "url": "http://192.168.1.50:8080/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

@@ -218,8 +218,10 @@ page is open and keeps the last lists cached while you visit the canvas page.
 ## Example workflows
 
 `examples/http-check.json` is a single HTTP check; `examples/sequence.json`
-checks two services in order. Copy a template into `workflows/`, change its URLs
-to services you control, and restart the app. These files are configuration
+checks two services in order; `examples/scheduled-check.json` runs one check
+every five minutes (see [Schedule a workflow](#schedule-a-workflow)). Copy a
+template into `workflows/`, change its URLs to services you control, and
+restart the app. These files are configuration
 templates; no target service is bundled or started for them.
 
 For manual local testing, start your own app and point a workflow at its health
@@ -333,6 +335,55 @@ M0's `steps` array is execution order. There are no graph edges or parallel bran
 yet. The version field gives us a place to introduce schema changes deliberately
 as the later graph model develops.
 
+## Schedule a workflow
+
+Add an optional `schedule` object to start a workflow on a cron timetable. The
+workflow can still be started by hand.
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "scheduled-health",
+  "name": "Scheduled health check",
+  "description": "Check a health endpoint every five minutes.",
+  "schedule": { "cron": "*/5 * * * *", "timezone": "Europe/Amsterdam" },
+  "steps": [
+    {
+      "id": "health",
+      "name": "Check health",
+      "type": "http.check",
+      "config": { "url": "http://192.168.1.50:8080/health", "expectedStatus": 200, "timeoutMs": 3000 }
+    }
+  ]
+}
+```
+
+`cron` uses the standard five fields: minute, hour, day of month, month, and day
+of week. Descriptors such as `@hourly` and `@every 30m` are also accepted.
+Occurrences must be at least one minute apart. Put the time zone in `timezone`
+as an IANA name such as `UTC` or `America/New_York`. The loader rejects a
+missing time zone, the name `Local`, a `TZ=` prefix inside `cron`, and an
+expression with no occurrence in the next five years, so a file means the same
+thing on every host. `examples/scheduled-check.json` is a template.
+
+Each scheduled start goes through the same admission as a manual start. If the
+workflow is still queued or running at its next occurrence, or all active slots
+and the queue are full, that occurrence is skipped and logged; nothing is
+retried. Occurrences that pass while the app is stopped are skipped rather than
+replayed; the first occurrence after startup is computed from the current time.
+If the host sleeps, the one occurrence whose timer was pending starts late, once,
+and later occurrences that passed during the sleep are skipped. When a
+daylight-saving change removes a wall-clock time, that
+day's occurrence is skipped; when a change repeats a wall-clock time, the
+occurrence runs twice. Shutdown stops the scheduler before the runner. A run
+that already started finishes under the runner's shutdown rules.
+
+The sidebar labels a scheduled workflow **Scheduled**, and the page heading shows
+its cron expression, time zone, and next run in the browser's time zone.
+`GET /api/workflows` returns the same `schedule` object plus a `nextRunAt`
+timestamp expressed in the schedule's zone. The Docker image installs `tzdata`,
+and the Go binary embeds a fallback zone database for hosts without one.
+
 ## Read the implementation
 
 ```text
@@ -374,7 +425,7 @@ and the remaining environment limitations.
 | Method and route | Response |
 | --- | --- |
 | `GET /api/health` | App readiness, not monitored-service health |
-| `GET /api/workflows` | Loaded workflow definitions |
+| `GET /api/workflows` | Loaded workflow definitions; a scheduled one includes `nextRunAt` |
 | `POST /api/workflows/{id}/runs` | `202` with a run ID and `Location` header |
 | `GET /api/runs` | Latest 100 runs across workflows, newest first; retained unsaved final results include a warning |
 | `GET /api/runs/{id}` | Saved run and step results, or a retained unsaved final result with a warning |
@@ -598,8 +649,8 @@ editable versioned sample files, bounded in-memory history, basic shutdown,
 Docker packaging, and focused automated checks. The next small learning exercise
 is to change an HTTP-check field and trace it through both languages.
 
-M1 already has SQLite history, bounded concurrent workflow runs, and TCP checks.
-Scheduling, SSH, scripts, Discord, administrator access, saved configuration,
+M1 already has SQLite history, bounded concurrent workflow runs, TCP checks, and
+cron schedules. SSH, scripts, Discord, administrator access, saved configuration,
 and configurable workflow presets remain. Visual graph editing, worker pools,
 retries, YAML, and model integrations remain later
 milestones. No extra packages or placeholder services have been created for them.

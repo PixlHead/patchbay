@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "scheduled-health",
+  "name": "Scheduled health check",
+  "description": "Check an HTTP health endpoint every five minutes. Set the URL and timezone before use.",
+  "schedule": {
+    "cron": "*/5 * * * *",
+    "timezone": "UTC"
+  },
+  "steps": [
+    {
+      "id": "health",
+      "name": "Check health",
+      "type": "http.check",
+      "config": {
+        "url": "http://192.168.1.50:8080/health",
+        "expectedStatus": 200,
+        "timeoutMs": 3000
+      }
+    }
+  ]
+}

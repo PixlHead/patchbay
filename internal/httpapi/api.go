@@ -17,14 +17,35 @@ import (
 	"patchbay/internal/workflow"
 )
 
+// NextRunSource reports when a workflow's schedule will next start a run.
+type NextRunSource interface {
+	NextRun(workflowID string) (time.Time, bool)
+}
+
+type workflowSummary struct {
+	workflow.Definition
+	NextRunAt *time.Time `json:"nextRunAt,omitempty"`
+}
+
 // New reads saved history, overlaying retained results whose final save failed.
-func New(definitions []workflow.Definition, runner *engine.Runner, db *sql.DB, webDir string) http.Handler {
+// A nil schedules source lists workflows without next-run times.
+func New(definitions []workflow.Definition, runner *engine.Runner, schedules NextRunSource, db *sql.DB, webDir string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /api/workflows", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, definitions)
+		summaries := make([]workflowSummary, 0, len(definitions))
+		for _, definition := range definitions {
+			summary := workflowSummary{Definition: definition}
+			if schedules != nil {
+				if next, ok := schedules.NextRun(definition.ID); ok {
+					summary.NextRunAt = &next
+				}
+			}
+			summaries = append(summaries, summary)
+		}
+		writeJSON(w, http.StatusOK, summaries)
 	})
 	mux.HandleFunc("POST /api/workflows/{id}/runs", func(w http.ResponseWriter, r *http.Request) {
 		// Start accepts no payload. Requiring JSON prevents cross-site HTML forms

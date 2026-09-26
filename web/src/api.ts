@@ -11,12 +11,17 @@ export type WorkflowStep = { id: string; name: string } & (
     }
 );
 
+export type WorkflowSchedule = { cron: string; timezone: string };
+
 export type Workflow = {
   schemaVersion: number;
   id: string;
   name: string;
   description: string;
+  schedule?: WorkflowSchedule;
   steps: WorkflowStep[];
+  // Present only while the server has a next occurrence for the schedule.
+  nextRunAt?: string;
 };
 
 export type CheckOutput = {

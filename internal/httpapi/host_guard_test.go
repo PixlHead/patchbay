@@ -124,7 +124,7 @@ func TestHostGuardProtectsAPIAndFrontend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := guard.Wrap(New(testDefinitions(), runner, db, webDir))
+	handler := guard.Wrap(New(testDefinitions(), runner, nil, db, webDir))
 	for _, test := range []struct{ method, path string }{
 		{http.MethodGet, "/"},
 		{http.MethodGet, "/api/health"},

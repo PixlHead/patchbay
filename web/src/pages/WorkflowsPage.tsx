@@ -12,7 +12,7 @@ import PageHeading from '../components/PageHeading';
 import Sidebar from '../components/Sidebar';
 import StepList from '../components/StepList';
 import WorkflowCanvas from '../components/WorkflowCanvas';
-import { errorMessage } from '../format';
+import { errorMessage, scheduleSummary } from '../format';
 import { useWorkspace } from '../workspace';
 
 const emptyStateClass = 'px-5 py-[30px] text-center leading-[1.7] text-text-muted md:p-[38px]';
@@ -66,6 +66,7 @@ export default function WorkflowsPage() {
   const savedWorkflow = selected && 'steps' in selected ? selected : undefined;
   const history = runs.filter((run) => run.workflowId === selected?.id);
   const inspectedRun = history.find((run) => run.id === runId) ?? history[0];
+  const scheduleLine = savedWorkflow ? scheduleSummary(savedWorkflow) : '';
 
   function chooseWorkflow(id: string) {
     selectWorkflow(id);
@@ -105,9 +106,26 @@ export default function WorkflowsPage() {
             <>
               <Breadcrumb page="Workflows" />
               <PageHeading
-                eyebrow={savedWorkflow ? 'MANUAL WORKFLOW' : 'LOCAL DRAFT'}
+                eyebrow={
+                  savedWorkflow
+                    ? savedWorkflow.schedule
+                      ? 'SCHEDULED WORKFLOW'
+                      : 'MANUAL WORKFLOW'
+                    : 'LOCAL DRAFT'
+                }
                 title={selected.name}
-                description={selected.description}
+                description={
+                  (selected.description || scheduleLine) && (
+                    <>
+                      {selected.description}
+                      {scheduleLine && (
+                        <span className="mt-1.5 block font-mono text-2xs text-text-secondary">
+                          {scheduleLine}
+                        </span>
+                      )}
+                    </>
+                  )
+                }
                 action={
                   savedWorkflow && (
                     <button
