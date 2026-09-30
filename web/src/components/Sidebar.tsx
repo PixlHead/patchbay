@@ -12,7 +12,7 @@ type SidebarProps = {
 export default function Sidebar({ workflows, selectedId, canvasDrafts, onSelect }: SidebarProps) {
   return (
     <aside
-      className="flex flex-col gap-2 border-b border-border bg-surface-muted px-4 pt-5 pb-2.5 md:gap-2.5 md:border-r md:border-b-0 md:px-3 md:pt-8 md:pb-6 lg:px-4.5"
+      className="flex shrink-0 flex-col gap-2 border-b border-border bg-surface-muted px-4 pt-5 pb-2.5 md:w-[234px] md:gap-2.5 md:overflow-y-auto md:border-r md:border-b-0 md:px-3 md:pt-8 md:pb-6 lg:w-[276px] lg:px-4.5"
       aria-label="Workflow navigation"
     >
       <div className="mx-0.75 mb-1 flex items-center justify-between text-2xs font-bold tracking-[1.5px] text-text-secondary md:mx-3 md:mb-0">

@@ -102,7 +102,7 @@ test('TCP results and legacy HTTP history render from saved output after reload'
   await page.route('**/api/runs', (route) =>
     route.fulfill({ json: [mixed, legacyHTTP, acceptedTCP] }),
   );
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
 
   const definitions = page.getByRole('region', { name: 'Saved workflow steps' });
   const tcpDefinition = definitions.getByRole('listitem').filter({ hasText: 'TCP port' });

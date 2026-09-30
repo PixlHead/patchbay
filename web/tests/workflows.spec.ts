@@ -6,7 +6,7 @@ test('run sequential checks and retain healthy and unhealthy results on reload',
 }) => {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
   await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
   const historyResponse = await page.request.get('/api/runs');
   expect(historyResponse.ok()).toBeTruthy();
@@ -47,24 +47,51 @@ test('run sequential checks and retain healthy and unhealthy results on reload',
   await expect(steps.getByText('Received expected HTTP 200')).toBeVisible();
   await expect(steps.getByText('Expected HTTP 204; received HTTP 200')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeEnabled();
-  await page.screenshot({ path: 'test-results/desktop.png', fullPage: true });
+  // Only the main column scrolls, so a tall viewport captures the whole Details view.
+  await page.setViewportSize({ width: 1280, height: 2200 });
+  await page.screenshot({ path: 'test-results/desktop.png' });
   expect(errors).toEqual([]);
 });
 
 test('mobile layout and backend-disconnection feedback', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
   await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
+  await page.setViewportSize({ width: 390, height: 2400 });
+  await page.screenshot({ path: 'test-results/mobile.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.route('**/api/**', (route) => route.abort());
   await expect(page.getByRole('alert')).toContainText('Retrying automatically');
   await expect(page.getByRole('button', { name: 'Run workflow', exact: true })).toBeDisabled();
+  // The Canvas view shows the same connection feedback.
+  await page.getByRole('tab', { name: 'Canvas' }).click();
+  await expect(page.getByRole('alert')).toContainText('Retrying automatically');
   await page.unroute('**/api/**');
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('the Canvas and Details views switch and survive a reload', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.getByRole('region', { name: 'Canvas for Browser checks' });
+  const steps = page.getByRole('region', { name: 'Saved workflow steps' });
+  const tabs = page.getByRole('tablist', { name: 'Workflow views' });
+  await expect(canvas).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Browser checks', exact: true })).toBeVisible();
+  await expect(steps).toHaveCount(0);
+
+  await tabs.getByRole('tab', { name: 'Details' }).click();
+  await expect(steps).toBeVisible();
+  await expect(canvas).toHaveCount(0);
+
+  await page.reload();
+  await expect(steps).toBeVisible();
+  await tabs.getByRole('tab', { name: 'Canvas' }).click();
+  await expect(canvas).toBeVisible();
+  await expect(steps).toHaveCount(0);
 });
 
 test('an old unfinished run does not disable starting another workflow', async ({ page }) => {
@@ -90,7 +117,7 @@ test('an old unfinished run does not disable starting another workflow', async (
       json: { error: 'this workflow is already queued or running; wait for it to finish' },
     }),
   );
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
   await expect(page.getByText('No completion recorded yet', { exact: true })).toBeVisible();
   const start = page.getByRole('button', { name: 'Run workflow', exact: true });
   await expect(start).toBeEnabled();
@@ -131,7 +158,7 @@ test('interrupted history preserves results and shows an unknown finish time', a
       ],
     }),
   );
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
   const results = page.getByRole('region', { name: 'Run results' });
   await expect(results.getByText('Interrupted', { exact: true })).toHaveCount(2);
   await expect(results.getByText('Finish time unknown', { exact: true })).toBeVisible();
@@ -167,7 +194,7 @@ for (const status of ['queued', 'canceled', 'interrupted']) {
         ],
       }),
     );
-    await page.goto('/');
+    await page.goto('/#/workflows?view=details');
     const results = page.getByRole('region', { name: 'Run results' });
     await expect(
       results.getByText(status === 'queued' ? 'Waiting for an execution slot' : 'Never started', {
@@ -225,7 +252,7 @@ for (const finalSaveFailed of [false, true]) {
       steps: [{ id: 'failed', name: 'Failed check', status: 'failed', error: 'Executor failed.' }],
     };
     await page.route('**/api/runs', (route) => route.fulfill({ json: [failed, stepFailure] }));
-    await page.goto('/');
+    await page.goto('/#/workflows?view=details');
     const results = page.getByRole('region', { name: 'Run results' });
     const reason = results.getByRole('alert').filter({ hasText: 'Could not save the result' });
     await expect(reason).toHaveText(failed.error!);
@@ -276,7 +303,7 @@ test('an unsaved final result keeps its execution status and shows a warning', a
   };
   const saved: Run = { ...unsaved, id: 'saved-result', finalSaveFailed: undefined };
   await page.route('**/api/runs', (route) => route.fulfill({ json: [unsaved, saved] }));
-  await page.goto('/');
+  await page.goto('/#/workflows?view=details');
   const results = page.getByRole('region', { name: 'Run results' });
   await expect(results.getByText('Completed', { exact: true })).toBeVisible();
   await expect(results.getByText('Healthy', { exact: true })).toBeVisible();

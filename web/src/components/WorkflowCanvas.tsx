@@ -59,23 +59,24 @@ export default function WorkflowCanvas({
     }));
   }
 
+  // The section fills its flex-column parent. The floor keeps a usable canvas on short screens.
   return (
     <section
-      className="mb-7 overflow-hidden rounded-xl border border-border bg-surface"
+      className="flex min-h-[560px] flex-1 flex-col overflow-hidden border-b border-border bg-surface"
       aria-label={`Canvas for ${draft.name || 'new workflow'}`}
     >
-      <div className={`${barClass} border-b border-border-muted`}>
-        <span className="min-w-0 wrap-anywhere">
-          <strong className="mr-2.25 text-xs font-semibold text-ink-strong">
+      <div className={`${barClass} shrink-0 border-b border-border-muted`}>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.25 wrap-anywhere">
+          <h1 className="text-xs font-semibold tracking-normal text-ink-strong">
             {draft.name || 'Untitled workflow'}
-          </strong>
+          </h1>
           <Badge tone="neutral">Local draft</Badge>
-        </span>
+        </div>
         <span className="min-w-0 wrap-anywhere">
           {draft.nodes.length} {draft.nodes.length === 1 ? 'node' : 'nodes'} · No connections
         </span>
       </div>
-      <div className="flex flex-wrap items-end gap-3 border-b border-border-muted px-4 py-3.5 md:px-5 md:py-4">
+      <div className="flex shrink-0 flex-wrap items-end gap-3 border-b border-border-muted px-4 py-3.5 md:px-5 md:py-4">
         <label className={fieldLabelClass}>
           Node type
           <select
@@ -102,7 +103,7 @@ export default function WorkflowCanvas({
           Reset layout
         </button>
       </div>
-      <div className="relative h-[450px] w-full md:h-[clamp(400px,62vh,760px)]">
+      <div className="relative min-h-0 flex-1">
         <ReactFlow<DraftNode>
           nodes={draft.nodes}
           edges={[]}
@@ -130,11 +131,11 @@ export default function WorkflowCanvas({
           </div>
         )}
       </div>
-      <div className={`${barClass} border-t border-border-muted leading-[1.6]`}>
+      <div className={`${barClass} shrink-0 border-t border-border-muted leading-[1.6]`}>
         <span>Drag to arrange · Select and press Delete to remove · Pan and zoom to explore</span>
         <span>
           {hasSavedWorkflow
-            ? 'Canvas edits are local. Run workflow uses the saved steps below.'
+            ? 'Canvas edits are local. The Run workflow button in the Details view uses the saved steps.'
             : 'Local draft only. Nodes do not run actions.'}
         </span>
       </div>

@@ -13,7 +13,7 @@
       "name": "Check health",
       "type": "http.check",
       "config": {
-        "url": "http://172.0.0.1:8080/api/health",
+        "url": "http://127.0.0.1:8080/api/health",
         "expectedStatus": 200,
         "timeoutMs": 3000
       }

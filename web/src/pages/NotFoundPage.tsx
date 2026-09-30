@@ -1,13 +1,13 @@
 import { Link } from '@tanstack/react-router';
 import AppHeader from '../components/AppHeader';
-import { wideMainClass } from '../components/classes';
+import { wideColumnClass } from '../components/classes';
 import PageHeading from '../components/PageHeading';
 
 export default function NotFoundPage() {
   return (
     <div>
       <AppHeader page="workflows" />
-      <main className={wideMainClass}>
+      <main className={wideColumnClass}>
         <PageHeading
           eyebrow="NOT FOUND"
           title="Page not found"

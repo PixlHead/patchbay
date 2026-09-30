@@ -11,7 +11,7 @@ const navLinkClass = `rounded-[7px] px-3.5 py-[9px] text-xs font-medium text-tex
 
 export default function AppHeader({ page, loading = false, disconnected = false }: AppHeaderProps) {
   return (
-    <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-[18px] py-3.5 md:min-h-[76px] md:gap-6 md:px-[34px]">
+    <header className="flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-[18px] py-3.5 md:min-h-[76px] md:gap-6 md:px-[34px]">
       <div className="flex items-center gap-3 text-base font-semibold tracking-[-0.6px] md:text-[19px]">
         <span
           className="relative grid size-[34px] place-content-center rounded-[10px] bg-accent-deep pr-[9px] text-[22px] font-medium text-white"

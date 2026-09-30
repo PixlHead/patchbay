@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import type { ErrorComponentProps } from '@tanstack/react-router';
 import AppHeader from '../components/AppHeader';
-import { wideMainClass } from '../components/classes';
+import { wideColumnClass } from '../components/classes';
 import PageHeading from '../components/PageHeading';
 import { errorMessage } from '../format';
 
@@ -11,7 +11,7 @@ export default function ErrorPage({ error, reset }: ErrorComponentProps) {
   return (
     <div>
       <AppHeader page="workflows" />
-      <main className={wideMainClass}>
+      <main className={wideColumnClass}>
         <PageHeading
           eyebrow="ERROR"
           title="Something went wrong"

@@ -56,7 +56,7 @@ behavior changes.
 | `web/src/queryClient.ts` | TanStack Query defaults: no retries, background polling, loopback-safe network mode |
 | `web/src/App.tsx`, `workspace.ts` | Root route: shared workspace state, draft creation, and the context the pages read |
 | `web/src/pages/` | Route components: `WorkflowsPage` (polled queries, run start, selection), `CanvasPage`, `NotFoundPage`, `ErrorPage` (router error boundary) |
-| `web/src/components/` | Presentational pieces: header, breadcrumb, page heading, sidebar, step list, execution history, run details, badges, error banner, JSON details, canvas; `classes.ts` holds the shared utility strings |
+| `web/src/components/` | Presentational pieces: header, breadcrumb, page heading, sidebar, view tabs (Canvas or Details; the pages keep the choice in `?view=`), scroll column, step list, execution history, run details, badges, error banner, JSON details, canvas; `classes.ts` holds the shared utility strings |
 | `web/src/format.ts` | Pure label, timing, summary, and check-result presentation helpers |
 | `web/src/index.css` | The only stylesheet: Tailwind entry, React Flow import, `@theme` tokens, base element rules, React Flow variable bindings |
 | `web/src/canvasDraft.ts`, `components/WorkflowCanvas.tsx`, `components/CanvasNode.tsx`, `pages/CanvasPage.tsx` | Frontend-only canvas/draft behavior; `CanvasNode` is the one React Flow node type |

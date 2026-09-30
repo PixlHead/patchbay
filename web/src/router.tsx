@@ -5,7 +5,9 @@ import {
   createRouter,
   redirect,
 } from '@tanstack/react-router';
+import type { SearchSchemaInput } from '@tanstack/react-router';
 import App from './App';
+import type { WorkflowView } from './components/ViewTabs';
 import CanvasPage from './pages/CanvasPage';
 import ErrorPage from './pages/ErrorPage';
 import NotFoundPage from './pages/NotFoundPage';
@@ -21,15 +23,25 @@ const indexRoute = createRoute({
   },
 });
 
+// The open view lives in the URL (?view=details), so a reload keeps it. SearchSchemaInput
+// makes `view` optional for links while the validated output is always set.
+function validateView(search: { view?: WorkflowView } & SearchSchemaInput): {
+  view: WorkflowView;
+} {
+  return { view: search.view === 'details' ? 'details' : 'canvas' };
+}
+
 const workflowsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/workflows',
+  validateSearch: validateView,
   component: WorkflowsPage,
 });
 
 const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/canvas',
+  validateSearch: validateView,
   component: CanvasPage,
 });
 

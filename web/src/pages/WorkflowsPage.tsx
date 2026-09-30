@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { request } from '../api';
 import type { Run, Workflow } from '../api';
 import { draftFromWorkflow } from '../canvasDraft';
@@ -9,19 +10,32 @@ import Breadcrumb from '../components/Breadcrumb';
 import ErrorBanner from '../components/ErrorBanner';
 import ExecutionHistory from '../components/ExecutionHistory';
 import PageHeading from '../components/PageHeading';
+import ScrollColumn from '../components/ScrollColumn';
 import Sidebar from '../components/Sidebar';
 import StepList from '../components/StepList';
+import ViewTabs, { viewPanelId, viewTabId } from '../components/ViewTabs';
+import type { WorkflowView } from '../components/ViewTabs';
 import WorkflowCanvas from '../components/WorkflowCanvas';
+import { pageShellClass } from '../components/classes';
 import { errorMessage, scheduleSummary } from '../format';
 import { useWorkspace } from '../workspace';
 
 const emptyStateClass = 'px-5 py-[30px] text-center leading-[1.7] text-text-muted md:p-[38px]';
+
+const detailsColumnClass =
+  'mx-auto w-full max-w-[1320px] px-[18px] py-[22px] md:p-7 lg:px-[42px] lg:pt-[30px] lg:pb-5 2xl:pt-[42px]';
+
+// Connection and run feedback sits above the view panel, so both views show it.
+const feedbackClass =
+  'mx-auto w-full max-w-[1320px] shrink-0 px-[18px] pt-[22px] md:px-7 md:pt-7 lg:px-[42px] lg:pt-[30px]';
 
 export default function WorkflowsPage() {
   const { workflowId, selectWorkflow, localWorkflows, canvasDrafts, setCanvasDrafts } =
     useWorkspace();
   const queryClient = useQueryClient();
   const [runId, setRunId] = useState('');
+  const { view } = useSearch({ from: '/workflows' });
+  const navigate = useNavigate();
 
   // Both lists refresh once per second while this page is mounted. A refresh still in
   // flight is reused, so requests never overlap. Leaving the page stops the polling.
@@ -79,11 +93,15 @@ export default function WorkflowsPage() {
     startMutation.mutate(savedWorkflow.id);
   }
 
+  function showView(next: WorkflowView) {
+    void navigate({ to: '/workflows', search: { view: next }, replace: true });
+  }
+
   return (
-    <div>
+    <div className={pageShellClass}>
       <AppHeader page="workflows" loading={loading} disconnected={!!connectionError} />
 
-      <div className="flex min-h-[calc(100vh-76px)] flex-col md:grid md:grid-cols-[234px_minmax(0,1fr)] lg:grid-cols-[276px_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <Sidebar
           workflows={availableWorkflows}
           selectedId={selected?.id}
@@ -91,57 +109,28 @@ export default function WorkflowsPage() {
           onSelect={chooseWorkflow}
         />
 
-        <main className="mx-auto w-full max-w-[1320px] self-start px-[18px] py-[22px] md:p-7 lg:px-[42px] lg:pt-[30px] lg:pb-5 2xl:pt-[42px]">
-          {connectionError && <ErrorBanner>{connectionError} Retrying automatically.</ErrorBanner>}
-          {actionError && <ErrorBanner>{actionError}</ErrorBanner>}
-          {loading && (
-            <div className={emptyStateClass} role="status">
-              Connecting to your workspace…
+        <ScrollColumn>
+          <ViewTabs view={view} onChange={showView} />
+          {(connectionError || actionError || loading) && (
+            <div className={feedbackClass}>
+              {connectionError && (
+                <ErrorBanner>{connectionError} Retrying automatically.</ErrorBanner>
+              )}
+              {actionError && <ErrorBanner>{actionError}</ErrorBanner>}
+              {loading && (
+                <div className={emptyStateClass} role="status">
+                  Connecting to your workspace…
+                </div>
+              )}
             </div>
           )}
-          {!loading && !selected && !connectionError && (
-            <div className={emptyStateClass}>No workflows are available.</div>
-          )}
-          {selected && (
-            <>
-              <Breadcrumb page="Workflows" />
-              <PageHeading
-                eyebrow={
-                  savedWorkflow
-                    ? savedWorkflow.schedule
-                      ? 'SCHEDULED WORKFLOW'
-                      : 'MANUAL WORKFLOW'
-                    : 'LOCAL DRAFT'
-                }
-                title={selected.name}
-                description={
-                  (selected.description || scheduleLine) && (
-                    <>
-                      {selected.description}
-                      {scheduleLine && (
-                        <span className="mt-1.5 block font-mono text-2xs text-text-secondary">
-                          {scheduleLine}
-                        </span>
-                      )}
-                    </>
-                  )
-                }
-                action={
-                  savedWorkflow && (
-                    <button
-                      className="flex w-full shrink-0 items-center justify-center gap-2.5 rounded-[7px] border border-accent bg-accent px-[18px] py-3 text-xs font-medium text-white shadow-button enabled:hover:bg-accent-hover md:w-auto"
-                      disabled={starting || !!connectionError}
-                      onClick={startRun}
-                    >
-                      <span className="text-2xs" aria-hidden="true">
-                        ▶
-                      </span>
-                      {starting ? 'Starting…' : 'Run workflow'}
-                    </button>
-                  )
-                }
-              />
-
+          <div
+            role="tabpanel"
+            id={viewPanelId}
+            aria-labelledby={viewTabId(view)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            {selected && view === 'canvas' ? (
               <WorkflowCanvas
                 key={selected.id}
                 draft={canvasDrafts[selected.id] ?? draftFromWorkflow(selected)}
@@ -153,23 +142,70 @@ export default function WorkflowsPage() {
                 }
                 hasSavedWorkflow={!!savedWorkflow}
               />
+            ) : (
+              <div className={detailsColumnClass}>
+                {!loading && !selected && !connectionError && (
+                  <div className={emptyStateClass}>No workflows are available.</div>
+                )}
+                {selected && (
+                  <>
+                    <Breadcrumb page="Workflows" />
+                    <PageHeading
+                      eyebrow={
+                        savedWorkflow
+                          ? savedWorkflow.schedule
+                            ? 'SCHEDULED WORKFLOW'
+                            : 'MANUAL WORKFLOW'
+                          : 'LOCAL DRAFT'
+                      }
+                      title={selected.name}
+                      description={
+                        (selected.description || scheduleLine) && (
+                          <>
+                            {selected.description}
+                            {scheduleLine && (
+                              <span className="mt-1.5 block font-mono text-2xs text-text-secondary">
+                                {scheduleLine}
+                              </span>
+                            )}
+                          </>
+                        )
+                      }
+                      action={
+                        savedWorkflow && (
+                          <button
+                            className="flex w-full shrink-0 items-center justify-center gap-2.5 rounded-[7px] border border-accent bg-accent px-[18px] py-3 text-xs font-medium text-white shadow-button enabled:hover:bg-accent-hover md:w-auto"
+                            disabled={starting || !!connectionError}
+                            onClick={startRun}
+                          >
+                            <span className="text-2xs" aria-hidden="true">
+                              ▶
+                            </span>
+                            {starting ? 'Starting…' : 'Run workflow'}
+                          </button>
+                        )
+                      }
+                    />
 
-              {savedWorkflow && (
-                <>
-                  <StepList workflow={savedWorkflow} />
-                  <ExecutionHistory
-                    history={history}
-                    inspectedRun={inspectedRun}
-                    onInspect={setRunId}
-                  />
-                </>
-              )}
-            </>
-          )}
-          <footer className="mt-[30px] text-center text-2xs text-text-subtle">
-            Built for your homelab. Runs on your machine.
-          </footer>
-        </main>
+                    {savedWorkflow && (
+                      <>
+                        <StepList workflow={savedWorkflow} />
+                        <ExecutionHistory
+                          history={history}
+                          inspectedRun={inspectedRun}
+                          onInspect={setRunId}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+                <footer className="mt-[30px] text-center text-2xs text-text-subtle">
+                  Built for your homelab. Runs on your machine.
+                </footer>
+              </div>
+            )}
+          </div>
+        </ScrollColumn>
       </div>
     </div>
   );

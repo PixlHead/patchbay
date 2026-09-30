@@ -182,23 +182,28 @@ work is a later increment; this queue currently lives within one process.
 ## Explore workflow canvases
 
 Each workflow page has a [React Flow](https://reactflow.dev/learn) canvas seeded
-from that workflow's existing step names. Layouts and added or removed placeholder
-nodes belong to that workflow only. They remain in memory while you switch
-workflows or visit the New workflow page; normal API polling does not reset them.
+from that workflow's existing step names. The page has two views. **Canvas** fills
+the space below the view tabs (beside the sidebar on wider screens), and **Details**
+holds the heading, the Run button, the saved steps, and the run history. Click a tab
+to switch. The open view is part of the URL (`#/workflows?view=details`), so a reload
+keeps it. Connection and run errors appear above both views. Layouts and added or
+removed placeholder nodes belong to that workflow only. They remain in memory while
+you switch workflows or visit the New workflow page; normal API polling does not
+reset them.
 
 Use **New workflow** in the top navigation, or open
 `http://localhost:8080/#/canvas` (`http://127.0.0.1:5173/#/canvas` in development).
-Start with a blank canvas, enter a name, and add HTTP, SSH, or Discord placeholder
-nodes. **Create draft** adds the workflow to the sidebar and opens its own page.
-It creates frontend state only: local drafts have no Run button and never send
-a workflow-creation request to the backend.
+Start with a blank canvas and add HTTP, SSH, or Discord placeholder nodes, then open
+the Details view and enter a name. **Create draft** adds the workflow to the sidebar
+and opens its own page. It creates frontend state only: local drafts have no Run
+button and never send a workflow-creation request to the backend.
 
 Drag nodes, pan and zoom, use **Reset layout**, or select a node and press Delete
 to remove it. Node connections remain disabled. Reloading clears all canvas
 edits, unfinished new workflows, and locally created drafts.
 
 Canvas editing does not modify or execute the saved workflows. For existing
-workflows, **Run workflow** still uses the saved steps shown below the canvas.
+workflows, **Run workflow** still uses the saved steps shown in the Details view.
 The existing backend requests and execution behavior are unchanged.
 
 `web/src/components/WorkflowCanvas.tsx` is the shared canvas component, and
@@ -399,7 +404,7 @@ web/src/router.tsx             Page routes and hash history (TanStack Router)
 web/src/queryClient.ts         TanStack Query defaults for polling
 web/src/App.tsx                Root route: shared workspace state and draft creation
 web/src/pages/                 WorkflowsPage (polling, run start, selection), CanvasPage, NotFoundPage
-web/src/components/            Header, page heading, sidebar, step list, run history and details, badges, canvas
+web/src/components/            Header, page heading, sidebar, view tabs, scroll column, step list, run history and details, badges, canvas
 web/src/format.ts              Labels, timing, summaries, and check-result presentation
 web/src/index.css              The only stylesheet: Tailwind entry, theme tokens, base rules
 workflows/                    Normal workflow definitions (one starter check)
